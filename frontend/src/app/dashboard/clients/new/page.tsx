@@ -42,7 +42,7 @@ export default function NewClientPage() {
           firstName: form.firstName.trim() || undefined,
           lastName: form.lastName.trim() || undefined,
           email: form.email.trim() || undefined,
-          phone: form.phone.trim() || undefined,
+          phone: form.phone.replace(/\s/g, "") || undefined,
           notes: form.notes.trim() || undefined,
         }),
       });
