@@ -4,6 +4,7 @@ import type { AuthenticatedRequest } from "../../middleware/auth.middleware.js";
 
 import {
   connectAccountSchema,
+  createPaymentIntentSchema,
 } from "./payment.schema.js";
 
 import {

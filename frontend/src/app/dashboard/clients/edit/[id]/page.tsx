@@ -83,11 +83,11 @@ export default function EditClientPage() {
       await apiFetch<CustomerResponse>(`/api/customers/${customerId}`, {
         method: "PATCH",
         body: JSON.stringify({
-          firstName: form.firstName.trim() || undefined,
-          lastName: form.lastName.trim() || undefined,
-          email: form.email.trim() || undefined,
-          phone: form.phone.replace(/\s/g, "") || undefined,
-          notes: form.notes.trim() || undefined,
+          firstName: form.firstName.trim() || null,
+          lastName: form.lastName.trim() || null,
+          email: form.email.trim() || null,
+          phone: form.phone.replace(/\s/g, "") || null,
+          notes: form.notes.trim() || null,
         }),
       });
 

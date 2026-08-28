@@ -55,21 +55,6 @@ export type ConnectAccountInput =
  */
 
 export const createPaymentIntentSchema = z.object({
-  amount: z
-    .number()
-    .positive(
-      "Le montant doit être supérieur à 0.",
-    ),
-
-  currency: z
-    .string()
-    .length(
-      3,
-      "La devise doit contenir 3 caractères.",
-    )
-    .toLowerCase()
-    .default("cad"),
-
   saleId: z
     .string()
     .uuid("ID de vente invalide."),

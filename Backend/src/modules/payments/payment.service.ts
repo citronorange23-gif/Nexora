@@ -407,26 +407,33 @@ export async function createPaymentIntent(
     throw new Error("STRIPE_ACCOUNT_NOT_CONNECTED");
   }
 
-  /*
-   * Si un PaymentIntent existe déjà,
-   * on le réutilise.
-   */
+    const REUSABLE_INTENT_STATUSES = new Set([
+    "requires_payment_method",
+    "requires_confirmation",
+    "requires_action",
+    "processing",
+    "succeeded",
+  ]);
+
   if (sale.payment.transactionId) {
     const existingIntent =
       await stripe.paymentIntents.retrieve(
         sale.payment.transactionId,
+        {},
         {
           stripeAccount:
             organization.stripeAccountId,
         },
       );
 
-    return {
-      paymentIntentId: existingIntent.id,
-      clientSecret: existingIntent.client_secret,
-      status: existingIntent.status,
-      reused: true,
-    };
+    if (REUSABLE_INTENT_STATUSES.has(existingIntent.status)) {
+      return {
+        paymentIntentId: existingIntent.id,
+        clientSecret: existingIntent.client_secret,
+        status: existingIntent.status,
+        reused: true,
+      };
+    }
   }
 
   /*
