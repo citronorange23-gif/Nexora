@@ -7,6 +7,8 @@ import { useParams, useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import BackButton from "@/components/ui/BackButton";
 
+import ConfirmationModal from "@/components/ui/ConfirmationModal";
+
 type SaleItem = {
   id: string;
   quantity: number;
@@ -71,6 +73,8 @@ export default function ClientDetailsPage() {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
 
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+
   async function loadCustomer() {
     try {
       setLoading(true);
@@ -96,34 +100,35 @@ export default function ClientDetailsPage() {
     loadCustomer();
   }, [customerId]);
 
-  async function handleDelete() {
+  function handleDelete() {
     if (!customer) return;
 
-    const confirmed = window.confirm(
-      `Voulez-vous vraiment supprimer "${getCustomerName(customer)}" ?`,
-    );
-
-    if (!confirmed) return;
-
-    try {
-      setDeleting(true);
-      setError("");
-
-      await apiFetch(`/api/customers/${customer.id}`, {
-        method: "DELETE",
-      });
-
-      router.push("/dashboard/clients");
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Impossible de supprimer le client.",
-      );
-    } finally {
-      setDeleting(false);
-    }
+    setShowDeleteModal(true);
   }
+
+  async function confirmDelete() {
+  if (!customer) return;
+
+  try {
+    setDeleting(true);
+    setError("");
+    setShowDeleteModal(false);
+
+    await apiFetch(`/api/customers/${customer.id}`, {
+      method: "DELETE",
+    });
+
+    router.push("/dashboard/clients");
+  } catch (error) {
+    setError(
+      error instanceof Error
+        ? error.message
+        : "Impossible de supprimer le client.",
+    );
+  } finally {
+    setDeleting(false);
+  }
+}
 
   if (loading) {
     return (
@@ -148,6 +153,16 @@ export default function ClientDetailsPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-10 text-white">
+      {showDeleteModal && customer && (
+        <ConfirmationModal
+          text={`Voulez-vous vraiment supprimer "${getCustomerName(customer)}" ?`}
+          onConfirm={confirmDelete}
+          onCancel={() => setShowDeleteModal(false)}
+          loading={deleting}
+          confirmText="Supprimer"
+          cancelText="Retour"
+        />
+      )}
       <div className="mx-auto w-full max-w-5xl">
         <BackButton href="/dashboard/clients">Retour aux clients</BackButton>
 

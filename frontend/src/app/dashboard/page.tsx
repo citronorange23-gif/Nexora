@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
+import ConfirmationModal from "@/components/ui/ConfirmationModal";
+
 type Permission = {
   id: string;
   module: string;
@@ -177,6 +179,9 @@ export default function DashboardPage() {
   const [sidebarOpen, setSidebarOpen] =
     useState(false);
 
+  const [showLogoutConfirmation, setShowLogoutConfirmation] =
+    useState(false);
+
   useEffect(() => {
     const token =
       localStorage.getItem("nexora_token");
@@ -234,9 +239,7 @@ export default function DashboardPage() {
   function handleLogout() {
     localStorage.removeItem("nexora_token");
     localStorage.removeItem("nexora_user");
-    localStorage.removeItem(
-      "nexora_organization",
-    );
+    localStorage.removeItem("nexora_organization");
 
     router.replace("/login");
   }
@@ -364,7 +367,7 @@ export default function DashboardPage() {
 
           <button
             type="button"
-            onClick={handleLogout}
+            onClick={() => setShowLogoutConfirmation(true)}
             className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-400 transition hover:bg-red-950/40 hover:text-red-400"
           >
             <span>↪</span>
@@ -746,6 +749,14 @@ export default function DashboardPage() {
           </footer>
         </section>
       </div>
+    {showLogoutConfirmation && (
+      <ConfirmationModal
+        text="Voulez-vous vraiment vous déconnecter ?"
+        confirmText="Se déconnecter"
+        onConfirm={handleLogout}
+        onCancel={() => setShowLogoutConfirmation(false)}
+      />
+    )}
     </main>
   );
 }

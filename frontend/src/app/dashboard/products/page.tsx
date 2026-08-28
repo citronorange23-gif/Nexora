@@ -6,6 +6,8 @@ import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import BackButton from "@/components/ui/BackButton";
 
+import ConfirmationModal from "@/components/ui/ConfirmationModal";
+
 interface Inventory {
   quantity: number;
   minStock: number;
@@ -42,6 +44,8 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const [confirmation, setConfirmation] = useState<Product | null>(null);
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<
@@ -101,41 +105,44 @@ export default function ProductsPage() {
     });
   }, [products, search, filter]);
 
-  async function handleDelete(product: Product) {
-    const confirmed = window.confirm(
-      `Voulez-vous vraiment supprimer "${product.name}" ?`,
+  function handleDelete(product: Product) {
+  setConfirmation(product);
+}
+
+async function confirmDelete() {
+  if (!confirmation) {
+    return;
+  }
+
+  const product = confirmation;
+
+  try {
+    setDeletingId(product.id);
+    setError("");
+    setConfirmation(null);
+
+    await apiFetch<DeleteResponse>(
+      `/api/products/${product.id}`,
+      {
+        method: "DELETE",
+      },
     );
 
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      setDeletingId(product.id);
-      setError("");
-
-      await apiFetch<DeleteResponse>(
-        `/api/products/${product.id}`,
-        {
-          method: "DELETE",
-        },
-      );
-
-      setProducts((current) =>
-        current.filter(
-          (item) => item.id !== product.id,
-        ),
-      );
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Impossible de supprimer le produit.",
-      );
-    } finally {
-      setDeletingId(null);
-    }
+    setProducts((current) =>
+      current.filter(
+        (item) => item.id !== product.id,
+      ),
+    );
+  } catch (error) {
+    setError(
+      error instanceof Error
+        ? error.message
+        : "Impossible de supprimer le produit.",
+    );
+  } finally {
+    setDeletingId(null);
   }
+}
 
   function getStockStatus(product: Product) {
     if (product.type === "SERVICE") {
@@ -180,6 +187,16 @@ export default function ProductsPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-10 text-white">
+      {confirmation && (
+        <ConfirmationModal
+          text={`Voulez-vous vraiment supprimer "${confirmation.name}" ?`}
+          onConfirm={confirmDelete}
+          onCancel={() => setConfirmation(null)}
+          loading={deletingId === confirmation.id}
+          confirmText="Supprimer"
+          cancelText="Annuler"
+        />
+      )}
       <div className="mx-auto w-full max-w-7xl">
 
         {/* RETOUR */}
@@ -400,12 +417,24 @@ export default function ProductsPage() {
                             </td>
 
                             <td className="px-6 py-5">
-                              <span className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300">
-                                {product.type ===
-                                "PRODUCT"
-                                  ? "Produit"
-                                  : "Service"}
-                              </span>
+                              <div className="flex flex-wrap gap-2">
+                                <span className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300">
+                                  {product.type ===
+                                  "PRODUCT"
+                                    ? "Produit"
+                                    : "Service"}
+                                </span>
+
+                                <span
+                            className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                              product.active
+                                ? "bg-emerald-950/60 text-emerald-400"
+                                : "bg-red-950/60 text-red-400"
+                            }`}
+                          >
+                            {product.active ? "Actif" : "Inactif"}
+                          </span>
+                              </div>
                             </td>
 
                             <td className="px-6 py-5 font-medium text-slate-200">
@@ -488,6 +517,9 @@ export default function ProductsPage() {
                           </p>
                         </div>
 
+                        str_replace :
+
+ancien :
                         <div className="mt-4 flex flex-wrap gap-2">
                           {product.sku && (
                             <span className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs text-slate-400">
@@ -499,6 +531,31 @@ export default function ProductsPage() {
                             className={`rounded-lg px-3 py-1.5 text-xs font-medium ${stockStatus.className}`}
                           >
                             {stockStatus.label}
+                          </span>
+                        </div>
+
+nouveau :
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {product.sku && (
+                            <span className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs text-slate-400">
+                              Réf. {product.sku}
+                            </span>
+                          )}
+
+                          <span
+                            className={`rounded-lg px-3 py-1.5 text-xs font-medium ${stockStatus.className}`}
+                          >
+                            {stockStatus.label}
+                          </span>
+
+                          <span
+                            className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                              product.active
+                                ? "bg-emerald-950/60 text-emerald-400"
+                                : "bg-red-950/60 text-red-400"
+                            }`}
+                          >
+                            {product.active ? "Actif" : "Inactif"}
                           </span>
                         </div>
 

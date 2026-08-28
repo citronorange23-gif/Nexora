@@ -6,6 +6,8 @@ import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import BackButton from "@/components/ui/BackButton";
 
+import ConfirmationModal from "@/components/ui/ConfirmationModal";
+
 type Customer = {
   id: string;
   firstName: string | null;
@@ -43,6 +45,7 @@ export default function ClientsPage() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmation, setConfirmation] = useState<Customer | null>(null);
   const [error, setError] = useState("");
 
   async function loadCustomers() {
@@ -89,40 +92,53 @@ export default function ClientsPage() {
     });
   }, [customers, search]);
 
-  async function handleDelete(customer: Customer) {
-    const confirmed = window.confirm(
-      `Voulez-vous vraiment supprimer "${getCustomerName(customer)}" ?`,
+  function handleDelete(customer: Customer) {
+  setConfirmation(customer);
+}
+
+async function confirmDelete() {
+  if (!confirmation) {
+    return;
+  }
+
+  const customer = confirmation;
+
+  try {
+    setDeletingId(customer.id);
+    setError("");
+    setConfirmation(null);
+
+    await apiFetch<DeleteResponse>(
+      `/api/customers/${customer.id}`,
+      { method: "DELETE" },
     );
 
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      setDeletingId(customer.id);
-      setError("");
-
-      await apiFetch<DeleteResponse>(
-        `/api/customers/${customer.id}`,
-        { method: "DELETE" },
-      );
-
-      setCustomers((current) =>
-        current.filter((item) => item.id !== customer.id),
-      );
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Impossible de supprimer le client.",
-      );
-    } finally {
-      setDeletingId(null);
-    }
+    setCustomers((current) =>
+      current.filter((item) => item.id !== customer.id),
+    );
+  } catch (error) {
+    setError(
+      error instanceof Error
+        ? error.message
+        : "Impossible de supprimer le client.",
+    );
+  } finally {
+    setDeletingId(null);
   }
+}
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-10 text-white">
+      {confirmation && (
+        <ConfirmationModal
+          text={`Voulez-vous vraiment supprimer "${getCustomerName(confirmation)}" ?`}
+          onConfirm={confirmDelete}
+          onCancel={() => setConfirmation(null)}
+          loading={deletingId === confirmation.id}
+          confirmText="Supprimer"
+          cancelText="Annuler"
+        />
+      )}
       <div className="mx-auto w-full max-w-7xl">
         <BackButton href="/dashboard">
           Retour au tableau de bord

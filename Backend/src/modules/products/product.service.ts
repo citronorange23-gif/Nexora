@@ -49,10 +49,14 @@ export async function createProduct(
   });
 }
 
-export async function getProducts(organizationId: string) {
+export async function getProducts(
+  organizationId: string,
+  all: boolean = true,
+) {
   return db.product.findMany({
     where: {
       organizationId,
+      ...(all ? {} : { active: true }),
     },
     include: {
       inventory: true,

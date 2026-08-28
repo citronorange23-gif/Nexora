@@ -96,16 +96,17 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  business    Business?
-  memberships OrganizationMember[]
-  modules     OrganizationModule[]
+  stripeAccountId String? @unique
 
+  business           Business?
+  memberships        OrganizationMember[]
+  modules            OrganizationModule[]
   products           Product[]
   inventoryMovements InventoryMovement[]
   customers          Customer[]
   sales              Sale[]
-
-  roles Role[]
+  roles              Role[]
+  stripeAccount      StripeAccount?
 
   @@map("organizations")
 }
@@ -146,6 +147,20 @@ model Business {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@map("businesses")
+}
+
+model StripeAccount {
+  id               String       @id @default(uuid())
+  stripeAccountId  String       @unique
+  organizationId   String       @unique
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  chargesEnabled   Boolean      @default(false)
+  payoutsEnabled   Boolean      @default(false)
+  detailsSubmitted Boolean      @default(false)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@map("stripe_accounts")
 }
 
 model Module {

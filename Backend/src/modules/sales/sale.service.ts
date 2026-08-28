@@ -111,40 +111,45 @@ export async function createSale(
     // 5. Créer la vente
     // ─────────────────────────────
 
-    const sale = await tx.sale.create({
-      data: {
-        organizationId,
-        customerId: input.customerId,
+    const isCardPayment =
+  input.payment.method === "CARD";
 
-        subtotal,
-        tax,
-        total,
+const sale = await tx.sale.create({
+  data: {
+    organizationId,
+    customerId: input.customerId,
 
-        status: "COMPLETED",
+    subtotal,
+    tax,
+    total,
 
-        items: {
-          create: saleItems,
-        },
+    status: "COMPLETED",
 
-        payment: {
-          create: {
-            method: input.payment.method,
-            status: "PAID",
-            amount: total,
-          },
-        },
+    items: {
+      create: saleItems,
+    },
+
+    payment: {
+      create: {
+        method: input.payment.method,
+        status: isCardPayment
+          ? "PENDING"
+          : "PAID",
+        amount: total,
       },
+    },
+  },
 
+  include: {
+    customer: true,
+    items: {
       include: {
-        customer: true,
-        items: {
-          include: {
-            product: true,
-          },
-        },
-        payment: true,
+        product: true,
       },
-    });
+    },
+    payment: true,
+  },
+});
 
     // ─────────────────────────────
     // 6. Déduire le stock

@@ -59,8 +59,11 @@ export async function list(
 
     console.log("2 - AUTH:", auth);
 
+    const all = req.query.all !== "false";
+
     const products = await getProducts(
       auth.organizationId,
+      all,
     );
 
     console.log("3 - PRODUCTS:", products.length);

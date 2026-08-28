@@ -16,6 +16,8 @@ import roleRoutes from "./modules/roles/role.routes.js";
 
 import customerRoutes from "./modules/customers/customer.routes.js"
 
+import paymentRoutes from "./modules/payments/payment.routes.js"; 
+
 dotenv.config();
 
 const app = express();
@@ -45,6 +47,8 @@ app.use("/api/employees", employeeRoutes);
 app.use("/api/roles", roleRoutes);
 
 app.use("/api/customers", customerRoutes);
+
+app.use("/api/payments", paymentRoutes);
 
 app.listen(PORT, () => {
   console.log(`🚀 Nexora API running on http://localhost:${PORT}`);
