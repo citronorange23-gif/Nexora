@@ -4,7 +4,7 @@ export const createProductSchema = z.object({
   name: z.string().min(1).max(150),
   sku: z.string().max(100).optional(),
   barcode: z.string().max(100).optional(),
-  description: z.string().max(1000).optional(),
+  description: z.string().max(5000).optional(),
 
   type: z.enum(["PRODUCT", "SERVICE"]).default("PRODUCT"),
 
