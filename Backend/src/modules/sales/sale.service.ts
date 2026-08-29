@@ -1,5 +1,6 @@
 import { db } from "../../lib/db.js";
 import type { CreateSaleInput } from "./sale.schema.js";
+import { refundStripePayment } from "../payments/payment.service.js"
 
 export async function createSale(
   organizationId: string,
@@ -262,6 +263,13 @@ export async function cancelSale(
       throw new Error("SALE_NOT_COMPLETED");
     }
 
+    if (
+      sale.payment?.method === "CARD" &&
+      sale.payment.status === "PAID"
+    ) {
+      throw new Error("CARD_PAYMENT_ALREADY_PAID");
+    }
+
     // Remettre le stock
     for (const item of sale.items) {
       if (item.product.type === "SERVICE") {
@@ -316,38 +324,55 @@ export async function refundSale(
   organizationId: string,
   saleId: string,
 ) {
-  return db.$transaction(async (tx) => {
-    const sale = await tx.sale.findFirst({
-      where: {
-        id: saleId,
-        organizationId,
-      },
-      include: {
-        items: {
-          include: {
-            product: true,
-          },
+  const sale = await db.sale.findFirst({
+    where: {
+      id: saleId,
+      organizationId,
+    },
+    include: {
+      items: {
+        include: {
+          product: true,
         },
-        payment: true,
       },
-    });
+      payment: true,
+    },
+  });
 
-    if (!sale) {
-      throw new Error("SALE_NOT_FOUND");
-    }
+  if (!sale) {
+    throw new Error("SALE_NOT_FOUND");
+  }
 
-    if (sale.status !== "COMPLETED") {
-      throw new Error("SALE_NOT_COMPLETED");
-    }
+  if (sale.status !== "COMPLETED") {
+    throw new Error("SALE_NOT_COMPLETED");
+  }
 
-    if (!sale.payment) {
-      throw new Error("PAYMENT_NOT_FOUND");
-    }
+  if (!sale.payment) {
+    throw new Error("PAYMENT_NOT_FOUND");
+  }
 
-    if (sale.payment.status === "REFUNDED") {
-      throw new Error("ALREADY_REFUNDED");
-    }
+  if (sale.payment.status === "REFUNDED") {
+    throw new Error("ALREADY_REFUNDED");
+  }
 
+  // ─────────────────────────────
+  // Remboursement Stripe
+  // (avant toute écriture en DB — si ça échoue,
+  //  rien n'est modifié)
+  // ─────────────────────────────
+
+  if (
+    sale.payment.method === "CARD" &&
+    sale.payment.transactionId
+  ) {
+    await refundStripePayment(
+      organizationId,
+      sale.payment.transactionId,
+      Number(sale.payment.amount),
+    );
+  }
+
+  return db.$transaction(async (tx) => {
     // Remettre le stock
     for (const item of sale.items) {
       if (item.product.type === "SERVICE") {

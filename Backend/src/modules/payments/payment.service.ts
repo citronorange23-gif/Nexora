@@ -489,6 +489,33 @@ export async function createPaymentIntent(
   };
 }
 
+export async function refundStripePayment(
+  organizationId: string,
+  transactionId: string,
+  amount: number,
+) {
+  const organization = await db.organization.findUnique({
+    where: { id: organizationId },
+    select: { stripeAccountId: true },
+  });
+
+  if (!organization?.stripeAccountId) {
+    throw new Error("STRIPE_ACCOUNT_NOT_CONNECTED");
+  }
+
+  const refund = await stripe.refunds.create(
+    {
+      payment_intent: transactionId,
+      amount: Math.round(amount * 100),
+    },
+    {
+      stripeAccount: organization.stripeAccountId,
+    },
+  );
+
+  return refund;
+}
+
 // backend/.../payment.service.ts (ajout)
 
 export async function handleStripeWebhookEvent(
