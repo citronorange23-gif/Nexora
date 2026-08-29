@@ -11,7 +11,8 @@ import {
   createConnectAccount,
   createConnectOnboardingLink,
   getConnectAccountStatus,
-  createPaymentIntent
+  createPaymentIntent,
+  handleStripeWebhookEvent
 } from "./payment.service.js";
 
 /*
@@ -250,6 +251,41 @@ export async function createPayment(
     return res.status(500).json({
       success: false,
       error: "Impossible de créer le paiement Stripe.",
+    });
+  }
+}
+
+// backend/.../payment.controller.ts (ajout)
+
+export async function stripeWebhook(
+  req: Request,
+  res: Response,
+) {
+  const signature = req.headers["stripe-signature"];
+
+  if (!signature || Array.isArray(signature)) {
+    return res.status(400).json({
+      success: false,
+      error: "Signature Stripe manquante ou invalide.",
+    });
+  }
+
+  try {
+    const result = await handleStripeWebhookEvent(
+      req.body as Buffer,
+      signature,
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("STRIPE WEBHOOK ERROR:", error);
+
+    return res.status(400).json({
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Signature ou payload invalide.",
     });
   }
 }

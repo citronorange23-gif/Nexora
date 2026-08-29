@@ -488,3 +488,76 @@ export async function createPaymentIntent(
     reused: false,
   };
 }
+
+// backend/.../payment.service.ts (ajout)
+
+export async function handleStripeWebhookEvent(
+  rawBody: Buffer,
+  signature: string,
+) {
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  if (!webhookSecret) {
+    throw new Error(
+      "STRIPE_WEBHOOK_SECRET est manquant dans les variables d'environnement.",
+    );
+  }
+
+  const event = stripe.webhooks.constructEvent(
+    rawBody,
+    signature,
+    webhookSecret,
+  );
+
+  switch (event.type) {
+    case "payment_intent.succeeded": {
+      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+
+      await db.payment.updateMany({
+        where: {
+          transactionId: paymentIntent.id,
+        },
+        data: {
+          status: "PAID",
+        },
+      });
+
+      break;
+    }
+
+    case "payment_intent.payment_failed": {
+      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+
+      await db.payment.updateMany({
+        where: {
+          transactionId: paymentIntent.id,
+        },
+        data: {
+          status: "FAILED",
+        },
+      });
+
+      break;
+    }
+
+    case "payment_intent.canceled": {
+      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+
+      await db.payment.updateMany({
+        where: {
+          transactionId: paymentIntent.id,
+        },
+        data: {
+          status: "FAILED",
+        },
+      });
+
+      break;
+    }
+
+    default:
+      break;
+  }
+
+  return { received: true };
+}
