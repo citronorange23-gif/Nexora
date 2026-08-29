@@ -16,7 +16,8 @@ import roleRoutes from "./modules/roles/role.routes.js";
 
 import customerRoutes from "./modules/customers/customer.routes.js"
 
-import paymentRoutes from "./modules/payments/payment.routes.js"; 
+import paymentRoutes from "./modules/payments/payment.routes.js";
+import { stripeWebhook } from "./modules/payments/payment.controller.js";
 
 dotenv.config();
 
@@ -25,6 +26,15 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 app.use(cors());
+
+// Webhook Stripe AVANT express.json() global —
+// doit recevoir le body brut pour vérifier la signature
+app.post(
+  "/api/payments/webhook",
+  express.raw({ type: "application/json" }),
+  stripeWebhook as express.RequestHandler,
+);
+
 app.use(express.json());
 
 app.get("/health", (_req, res) => {
