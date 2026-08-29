@@ -132,9 +132,7 @@ const sale = await tx.sale.create({
     payment: {
       create: {
         method: input.payment.method,
-        status: isCardPayment
-          ? "PENDING"
-          : "PAID",
+        status: isCardPayment ? "PENDING" : "PAID",
         amount: total,
       },
     },
@@ -151,44 +149,47 @@ const sale = await tx.sale.create({
   },
 });
 
-    // ─────────────────────────────
+        // ─────────────────────────────
     // 6. Déduire le stock
+    //    (seulement si le paiement est déjà validé —
+    //     CASH est payé immédiatement, CARD attend le webhook)
     // ─────────────────────────────
 
-    for (const item of input.items) {
-      const product = products.find(
-        (product) => product.id === item.productId,
-      );
+    if (!isCardPayment) {
+      for (const item of input.items) {
+        const product = products.find(
+          (product) => product.id === item.productId,
+        );
 
-      if (!product) {
-        throw new Error("PRODUCT_NOT_FOUND");
-      }
+        if (!product) {
+          throw new Error("PRODUCT_NOT_FOUND");
+        }
 
-      // Les services n'ont pas de stock
-      if (product.type === "SERVICE") {
-        continue;
-      }
+        if (product.type === "SERVICE") {
+          continue;
+        }
 
-      await tx.inventory.update({
-        where: {
-          productId: product.id,
-        },
-        data: {
-          quantity: {
-            decrement: item.quantity,
+        await tx.inventory.update({
+          where: {
+            productId: product.id,
           },
-        },
-      });
+          data: {
+            quantity: {
+              decrement: item.quantity,
+            },
+          },
+        });
 
-      await tx.inventoryMovement.create({
-        data: {
-          type: "SALE",
-          quantity: -item.quantity,
-          reason: `Sale ${sale.id}`,
-          productId: product.id,
-          organizationId,
-        },
-      });
+        await tx.inventoryMovement.create({
+          data: {
+            type: "SALE",
+            quantity: -item.quantity,
+            reason: `Sale ${sale.id}`,
+            productId: product.id,
+            organizationId,
+          },
+        });
+      }
     }
 
     return sale;
@@ -199,19 +200,16 @@ export async function getSales(organizationId: string) {
   return db.sale.findMany({
     where: {
       organizationId,
+      payment: {
+        status: { not: "PENDING" },
+      },
     },
     include: {
       customer: true,
-      items: {
-        include: {
-          product: true,
-        },
-      },
+      items: { include: { product: true } },
       payment: true,
     },
-    orderBy: {
-      createdAt: "desc",
-    },
+    orderBy: { createdAt: "desc" },
   });
 }
 

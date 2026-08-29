@@ -510,20 +510,60 @@ export async function handleStripeWebhookEvent(
   );
 
   switch (event.type) {
-    case "payment_intent.succeeded": {
-      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+    // payment.service.ts, dans handleStripeWebhookEvent
 
-      await db.payment.updateMany({
-        where: {
-          transactionId: paymentIntent.id,
+  case "payment_intent.succeeded": {
+  const paymentIntent = event.data.object as Stripe.PaymentIntent;
+
+  const payment = await db.payment.findFirst({
+    where: { transactionId: paymentIntent.id },
+    include: {
+      sale: {
+        include: {
+          items: {
+            include: {
+              product: true,
+            },
+          },
         },
-        data: {
-          status: "PAID",
-        },
+      },
+    },
+  });
+
+  if (!payment || payment.status === "PAID") {
+    break;
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.payment.update({
+      where: { id: payment.id },
+      data: { status: "PAID" },
+    });
+
+    for (const item of payment.sale.items) {
+      if (item.product.type === "SERVICE") {
+        continue;
+      }
+
+      await tx.inventory.update({
+        where: { productId: item.productId },
+        data: { quantity: { decrement: item.quantity } },
       });
 
-      break;
+      await tx.inventoryMovement.create({
+        data: {
+          type: "SALE",
+          quantity: -item.quantity,
+          reason: `Sale ${payment.saleId}`,
+          productId: item.productId,
+          organizationId: payment.sale.organizationId,
+        },
+      });
     }
+  });
+
+  break;
+}
 
     case "payment_intent.payment_failed": {
       const paymentIntent = event.data.object as Stripe.PaymentIntent;

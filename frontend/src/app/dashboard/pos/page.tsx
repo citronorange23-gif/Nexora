@@ -1,9 +1,11 @@
-
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Elements } from "@stripe/react-stripe-js";
+import { loadStripe } from "@stripe/stripe-js";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import { apiFetch } from "@/lib/api";
+import StripePaymentForm from "@/components/ui/StripePaymentForm";
 
 type Product = {
   id: string;
@@ -39,6 +41,23 @@ type CustomersResponse = {
   data: Customer[];
 };
 
+type PaymentIntentResponse = {
+  success: boolean;
+  data: {
+    clientSecret: string;
+    paymentIntentId: string;
+  };
+};
+
+type ConnectStatusResponse = {
+  success: boolean;
+  data: { connected: boolean; stripeAccountId: string | null };
+};
+
+
+
+type PaymentMethod = "CASH" | "CARD";
+
 export default function POSPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -46,12 +65,20 @@ export default function POSPage() {
   const [search, setSearch] = useState("");
   const [barcode, setBarcode] = useState("");
 
+  const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
+  const [pendingSaleId, setPendingSaleId] = useState("");
+
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCustomer, setSelectedCustomer] =
     useState<Customer | null>(null);
 
+  const [paymentMethod, setPaymentMethod] =
+    useState<PaymentMethod>("CASH");
+
   const [loading, setLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [paymentIntentLoading, setPaymentIntentLoading] =
+    useState(false);
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -59,12 +86,25 @@ export default function POSPage() {
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState("");
 
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [clientSecret, setClientSecret] = useState("");
+  const [paymentIntentId, setPaymentIntentId] = useState("");
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const readerRef =
     useRef<BrowserMultiFormatReader | null>(null);
 
   const controlsRef = useRef<any>(null);
+
+  const stripePromise = useMemo(() => {
+    if (!stripeAccountId) return null;
+
+    return loadStripe(
+      process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY as string,
+      { stripeAccount: stripeAccountId },
+    );
+  }, [stripeAccountId]);
 
   /*
    * =====================================================
@@ -78,26 +118,16 @@ export default function POSPage() {
         setLoading(true);
         setError("");
 
-        const [
-          productsResponse,
-          customersResponse,
-        ] = await Promise.all([
-          apiFetch<ProductsResponse>(
-            "/api/products?all=false",
-          ),
+        const [productsResponse, customersResponse, connectResponse] =
+          await Promise.all([
+            apiFetch<ProductsResponse>("/api/products?all=false"),
+            apiFetch<CustomersResponse>("/api/customers"),
+            apiFetch<ConnectStatusResponse>("/api/payments/connect/status"),
+          ]);
 
-          apiFetch<CustomersResponse>(
-            "/api/customers",
-          ),
-        ]);
-
-        setProducts(
-          productsResponse.data ?? [],
-        );
-
-        setCustomers(
-          customersResponse.data ?? [],
-        );
+        setProducts(productsResponse.data ?? []);
+        setCustomers(customersResponse.data ?? []);
+        setStripeAccountId(connectResponse.data.stripeAccountId);
       } catch (err) {
         console.error(err);
 
@@ -119,25 +149,18 @@ export default function POSPage() {
    */
 
   const filteredProducts = useMemo(() => {
-    const value = search
-      .trim()
-      .toLowerCase();
+    const value = search.trim().toLowerCase();
 
     if (!value) {
       return products;
     }
 
     return products.filter((product) => {
-      const name =
-        product.name.toLowerCase();
-
-      const productBarcode =
-        product.barcode
-          ?.toLowerCase() ?? "";
+      const name = product.name.toLowerCase();
+      const productBarcode = product.barcode?.toLowerCase() ?? "";
 
       return (
-        name.includes(value) ||
-        productBarcode.includes(value)
+        name.includes(value) || productBarcode.includes(value)
       );
     });
   }, [products, search]);
@@ -152,32 +175,20 @@ export default function POSPage() {
     setError("");
     setSuccess("");
 
-    const stock =
-      product.inventory?.quantity ?? 0;
+    const stock = product.inventory?.quantity ?? 0;
 
     if (stock <= 0) {
-      setError(
-        `${product.name} est en rupture de stock.`,
-      );
-
+      setError(`${product.name} est en rupture de stock.`);
       return;
     }
 
     setCart((currentCart) => {
-      const existing =
-        currentCart.find(
-          (item) =>
-            item.product.id === product.id,
-        );
+      const existing = currentCart.find(
+        (item) => item.product.id === product.id,
+      );
 
       if (!existing) {
-        return [
-          ...currentCart,
-          {
-            product,
-            quantity: 1,
-          },
-        ];
+        return [...currentCart, { product, quantity: 1 }];
       }
 
       if (existing.quantity >= stock) {
@@ -186,31 +197,22 @@ export default function POSPage() {
 
       return currentCart.map((item) =>
         item.product.id === product.id
-          ? {
-              ...item,
-              quantity:
-                item.quantity + 1,
-            }
+          ? { ...item, quantity: item.quantity + 1 }
           : item,
       );
     });
   }
 
-  function updateQuantity(
-    productId: string,
-    quantity: number,
-  ) {
+  function updateQuantity(productId: string, quantity: number) {
     const item = cart.find(
-      (cartItem) =>
-        cartItem.product.id === productId,
+      (cartItem) => cartItem.product.id === productId,
     );
 
     if (!item) {
       return;
     }
 
-    const stock =
-      item.product.inventory?.quantity ?? 0;
+    const stock = item.product.inventory?.quantity ?? 0;
 
     if (quantity <= 0) {
       removeFromCart(productId);
@@ -228,23 +230,15 @@ export default function POSPage() {
     setCart((currentCart) =>
       currentCart.map((cartItem) =>
         cartItem.product.id === productId
-          ? {
-              ...cartItem,
-              quantity,
-            }
+          ? { ...cartItem, quantity }
           : cartItem,
       ),
     );
   }
 
-  function removeFromCart(
-    productId: string,
-  ) {
+  function removeFromCart(productId: string) {
     setCart((currentCart) =>
-      currentCart.filter(
-        (item) =>
-          item.product.id !== productId,
-      ),
+      currentCart.filter((item) => item.product.id !== productId),
     );
   }
 
@@ -254,36 +248,26 @@ export default function POSPage() {
    * =====================================================
    */
 
-  function findProductByBarcode(
-    barcodeToFind: string,
-  ) {
-    const cleanBarcode =
-      barcodeToFind
-        .replace(/\s/g, "")
-        .toLowerCase();
+  function findProductByBarcode(barcodeToFind: string) {
+    const cleanBarcode = barcodeToFind
+      .replace(/\s/g, "")
+      .toLowerCase();
 
     return products.find(
       (product) =>
-        product.barcode
-          ?.replace(/\s/g, "")
-          .toLowerCase() === cleanBarcode,
+        product.barcode?.replace(/\s/g, "").toLowerCase() ===
+        cleanBarcode,
     );
   }
 
-  function handleBarcode(
-    barcodeToAdd: string,
-  ) {
-    const cleanBarcode =
-      barcodeToAdd
-        .replace(/\s/g, "")
-        .trim();
+  function handleBarcode(barcodeToAdd: string) {
+    const cleanBarcode = barcodeToAdd.replace(/\s/g, "").trim();
 
     if (!cleanBarcode) {
       return;
     }
 
-    const product =
-      findProductByBarcode(cleanBarcode);
+    const product = findProductByBarcode(cleanBarcode);
 
     if (!product) {
       setError(
@@ -323,8 +307,7 @@ export default function POSPage() {
     setError("");
 
     try {
-      const reader =
-        new BrowserMultiFormatReader();
+      const reader = new BrowserMultiFormatReader();
 
       readerRef.current = reader;
 
@@ -332,54 +315,45 @@ export default function POSPage() {
         return;
       }
 
-      controlsRef.current =
-        await reader.decodeFromConstraints(
-          {
-            video: {
-              facingMode: {
-                ideal: "environment",
-              },
-
-              width: {
-                ideal: 1280,
-              },
-
-              height: {
-                ideal: 720,
-              },
+      controlsRef.current = await reader.decodeFromConstraints(
+        {
+          video: {
+            facingMode: {
+              ideal: "environment",
             },
 
-            audio: false,
+            width: {
+              ideal: 1280,
+            },
+
+            height: {
+              ideal: 720,
+            },
           },
 
-          videoRef.current,
+          audio: false,
+        },
 
-          async (result) => {
-            if (!result) {
-              return;
-            }
+        videoRef.current,
 
-            const detectedBarcode =
-              result
-                .getText()
-                .trim();
+        async (result) => {
+          if (!result) {
+            return;
+          }
 
-            if (!detectedBarcode) {
-              return;
-            }
+          const detectedBarcode = result.getText().trim();
 
-            stopScanner();
+          if (!detectedBarcode) {
+            return;
+          }
 
-            handleBarcode(
-              detectedBarcode,
-            );
-          },
-        );
-    } catch (error) {
-      console.error(
-        "Erreur caméra:",
-        error,
+          stopScanner();
+
+          handleBarcode(detectedBarcode);
+        },
       );
+    } catch (error) {
+      console.error("Erreur caméra:", error);
 
       setCameraActive(false);
 
@@ -390,10 +364,7 @@ export default function POSPage() {
   }
 
   useEffect(() => {
-    if (
-      cameraActive &&
-      videoRef.current
-    ) {
+    if (cameraActive && videoRef.current) {
       startScanner();
     }
   }, [cameraActive]);
@@ -410,18 +381,11 @@ export default function POSPage() {
 
     if (videoRef.current) {
       const stream =
-        videoRef.current
-          .srcObject as
-          | MediaStream
-          | null;
+        videoRef.current.srcObject as MediaStream | null;
 
-      stream?.getTracks().forEach(
-        (track) =>
-          track.stop(),
-      );
+      stream?.getTracks().forEach((track) => track.stop());
 
-      videoRef.current.srcObject =
-        null;
+      videoRef.current.srcObject = null;
     }
 
     setCameraActive(false);
@@ -442,24 +406,19 @@ export default function POSPage() {
   const subtotal = useMemo(() => {
     return cart.reduce(
       (total, item) =>
-        total +
-        Number(item.product.price) *
-          item.quantity,
+        total + Number(item.product.price) * item.quantity,
       0,
     );
   }, [cart]);
 
   const taxRate = 15;
 
-  const tax =
-    subtotal * (taxRate / 100);
+  const tax = subtotal * (taxRate / 100);
 
-  const total =
-    subtotal + tax;
+  const total = subtotal + tax;
 
   const itemCount = cart.reduce(
-    (count, item) =>
-      count + item.quantity,
+    (count, item) => count + item.quantity,
     0,
   );
 
@@ -469,34 +428,50 @@ export default function POSPage() {
    * =====================================================
    */
 
-  function getCustomerName(
-    customer: Customer,
-  ) {
-    const name =
-      `${customer.firstName ?? ""} ${
-        customer.lastName ?? ""
-      }`.trim();
+  function getCustomerName(customer: Customer) {
+    const name = `${customer.firstName ?? ""} ${
+      customer.lastName ?? ""
+    }`.trim();
 
-    return (
-      name ||
-      customer.email ||
-      customer.phone ||
-      "Client"
-    );
+    return name || customer.email || customer.phone || "Client";
   }
 
   /*
    * =====================================================
-   * CHECKOUT
+   * CHECKOUT — CASH
    * =====================================================
    */
 
-  async function checkout() {
-    if (cart.length === 0) {
-      setError(
-        "Le panier est vide.",
-      );
+  async function createSale(payment: Record<string, unknown>) {
+    await apiFetch("/api/sales", {
+      method: "POST",
 
+      body: JSON.stringify({
+        customerId: selectedCustomer?.id,
+
+        items: cart.map((item) => ({
+          productId: item.product.id,
+          quantity: item.quantity,
+        })),
+
+        taxRate,
+
+        payment,
+      }),
+    });
+
+    setCart([]);
+    setSelectedCustomer(null);
+    setSearch("");
+    setBarcode("");
+    setPaymentMethod("CASH");
+
+    setSuccess("Vente enregistrée avec succès.");
+  }
+
+  async function checkoutCash() {
+    if (cart.length === 0) {
+      setError("Le panier est vide.");
       return;
     }
 
@@ -505,50 +480,99 @@ export default function POSPage() {
       setError("");
       setSuccess("");
 
-      await apiFetch(
-        "/api/sales",
-        {
-          method: "POST",
-
-          body: JSON.stringify({
-            customerId:
-              selectedCustomer?.id,
-
-            items: cart.map(
-              (item) => ({
-                productId:
-                  item.product.id,
-
-                quantity:
-                  item.quantity,
-              }),
-            ),
-
-            taxRate,
-
-            payment: {
-              method: "CASH",
-            },
-          }),
-        },
-      );
-
-      setCart([]);
-      setSelectedCustomer(null);
-      setSearch("");
-      setBarcode("");
-
-      setSuccess(
-        "Vente enregistrée avec succès.",
-      );
+      await createSale({ method: "CASH" });
     } catch (err) {
       console.error(err);
 
-      setError(
-        "Impossible d'enregistrer la vente.",
-      );
+      setError("Impossible d'enregistrer la vente.");
     } finally {
       setCheckoutLoading(false);
+    }
+  }
+
+  /*
+   * =====================================================
+   * CHECKOUT — CARTE (STRIPE)
+   * =====================================================
+   */
+
+  async function checkoutCard() {
+  if (cart.length === 0) {
+    setError("Le panier est vide.");
+    return;
+  }
+
+  try {
+    setPaymentIntentLoading(true);
+    setError("");
+    setSuccess("");
+
+    const saleResponse = await apiFetch<{
+      success: boolean;
+      data: { id: string };
+    }>("/api/sales", {
+      method: "POST",
+      body: JSON.stringify({
+        customerId: selectedCustomer?.id,
+        items: cart.map((item) => ({
+          productId: item.product.id,
+          quantity: item.quantity,
+        })),
+        taxRate,
+        payment: { method: "CARD" },
+      }),
+    });
+
+    const saleId = saleResponse.data.id;
+
+    const intentResponse = await apiFetch<PaymentIntentResponse>(
+      "/api/payments/create-intent",
+      {
+        method: "POST",
+        body: JSON.stringify({ saleId }),
+      },
+    );
+
+    setPendingSaleId(saleId);
+    setClientSecret(intentResponse.data.clientSecret);
+    setPaymentIntentId(intentResponse.data.paymentIntentId);
+    setShowPaymentModal(true);
+  } catch (err) {
+    console.error(err);
+    setError("Impossible d'initier le paiement par carte.");
+  } finally {
+    setPaymentIntentLoading(false);
+  }
+}
+
+  function handleCardPaymentSuccess() {
+  setShowPaymentModal(false);
+  setClientSecret("");
+  setPaymentIntentId("");
+  setPendingSaleId("");
+
+  setCart([]);
+  setSelectedCustomer(null);
+  setSearch("");
+  setBarcode("");
+  setPaymentMethod("CASH");
+
+  setSuccess(
+    "Paiement envoyé. La vente sera confirmée une fois validée par Stripe.",
+  );
+}
+
+  function handlePaymentModalClose() {
+    setShowPaymentModal(false);
+    setClientSecret("");
+    setPaymentIntentId("");
+  }
+
+  function checkout() {
+    if (paymentMethod === "CASH") {
+      checkoutCash();
+    } else {
+      checkoutCard();
     }
   }
 
@@ -562,9 +586,7 @@ export default function POSPage() {
     return (
       <main className="min-h-screen bg-slate-950 p-6 text-white">
         <div className="mx-auto max-w-7xl">
-          <p className="text-slate-400">
-            Chargement de la caisse...
-          </p>
+          <p className="text-slate-400">Chargement de la caisse...</p>
         </div>
       </main>
     );
@@ -579,17 +601,13 @@ export default function POSPage() {
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-6 text-white md:px-6">
       <div className="mx-auto max-w-7xl">
-
         {/* HEADER */}
 
         <div className="mb-6">
-          <h1 className="text-3xl font-bold tracking-tight">
-            Caisse
-          </h1>
+          <h1 className="text-3xl font-bold tracking-tight">Caisse</h1>
 
           <p className="mt-1 text-sm text-slate-400">
-            Recherche ou scanne un produit
-            pour l'ajouter au panier.
+            Recherche ou scanne un produit pour l'ajouter au panier.
           </p>
         </div>
 
@@ -608,24 +626,18 @@ export default function POSPage() {
         )}
 
         <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
-
           {/* ========================================= */}
           {/* PRODUITS */}
           {/* ========================================= */}
 
           <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-
             {/* RECHERCHE */}
 
             <div className="mb-4">
               <input
                 type="text"
                 value={search}
-                onChange={(event) =>
-                  setSearch(
-                    event.target.value,
-                  )
-                }
+                onChange={(event) => setSearch(event.target.value)}
                 placeholder="Rechercher un produit..."
                 className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-600 transition focus:border-white"
               />
@@ -634,43 +646,31 @@ export default function POSPage() {
             {/* SCANNER */}
 
             <div className="mb-5 rounded-xl border border-slate-800 bg-slate-950 p-4">
-
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-
                 <div>
-                  <p className="font-medium">
-                    Scanner un code-barres
-                  </p>
+                  <p className="font-medium">Scanner un code-barres</p>
 
                   <p className="mt-1 text-xs text-slate-500">
-                    Utilise la caméra ou entre
-                    le code manuellement.
+                    Utilise la caméra ou entre le code manuellement.
                   </p>
                 </div>
 
                 {!cameraActive && (
                   <button
                     type="button"
-                    onClick={() =>
-                      setCameraActive(
-                        true,
-                      )
-                    }
+                    onClick={() => setCameraActive(true)}
                     className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-slate-200"
                   >
                     📷 Scanner
                   </button>
                 )}
-
               </div>
 
               {/* CAMERA */}
 
               {cameraActive && (
                 <div className="mt-4">
-
                   <div className="relative overflow-hidden rounded-xl border border-slate-700 bg-black">
-
                     <video
                       ref={videoRef}
                       className="min-h-[260px] w-full object-cover"
@@ -680,35 +680,25 @@ export default function POSPage() {
                     />
 
                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-
                       <div className="relative h-28 w-[80%] max-w-md rounded-xl border-2 border-white">
-
                         <div className="absolute left-0 top-1/2 h-0.5 w-full -translate-y-1/2 bg-white/70" />
-
                       </div>
-
                     </div>
-
                   </div>
 
                   <div className="mt-3 flex items-center justify-between">
-
                     <p className="text-xs text-slate-500">
                       Recherche du code-barres...
                     </p>
 
                     <button
                       type="button"
-                      onClick={
-                        stopScanner
-                      }
+                      onClick={stopScanner}
                       className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:bg-slate-800"
                     >
                       Fermer
                     </button>
-
                   </div>
-
                 </div>
               )}
 
@@ -723,112 +713,72 @@ export default function POSPage() {
               {/* MANUAL BARCODE */}
 
               <div className="mt-4 flex gap-2">
-
                 <input
                   type="text"
                   value={barcode}
-                  onChange={(event) =>
-                    setBarcode(
-                      event.target.value,
-                    )
-                  }
-                  onKeyDown={
-                    handleBarcodeKeyDown
-                  }
+                  onChange={(event) => setBarcode(event.target.value)}
+                  onKeyDown={handleBarcodeKeyDown}
                   placeholder="EAN / UPC / GTIN"
                   className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm text-white outline-none placeholder:text-slate-600 focus:border-white"
                 />
 
                 <button
                   type="button"
-                  onClick={() =>
-                    handleBarcode(
-                      barcode,
-                    )
-                  }
+                  onClick={() => handleBarcode(barcode)}
                   className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-slate-200"
                 >
                   Ajouter
                 </button>
-
               </div>
-
             </div>
 
             {/* GRID */}
 
             {filteredProducts.length === 0 ? (
               <div className="py-16 text-center">
-
-                <p className="text-slate-400">
-                  Aucun produit trouvé.
-                </p>
+                <p className="text-slate-400">Aucun produit trouvé.</p>
 
                 {search && (
                   <p className="mt-1 text-xs text-slate-600">
                     Essaie une autre recherche.
                   </p>
                 )}
-
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+                {filteredProducts.map((product) => {
+                  const stock = product.inventory?.quantity ?? 0;
 
-                {filteredProducts.map(
-                  (product) => {
-                    const stock =
-                      product.inventory
-                        ?.quantity ?? 0;
+                  return (
+                    <button
+                      key={product.id}
+                      type="button"
+                      onClick={() => addToCart(product)}
+                      disabled={stock <= 0}
+                      className="rounded-xl border border-slate-800 bg-slate-950 p-3 text-left transition hover:border-slate-500 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <div className="mb-3 flex min-h-20 items-center justify-center rounded-lg bg-slate-900 px-2 text-center text-sm font-medium">
+                        {product.name}
+                      </div>
 
-                    return (
-                      <button
-                        key={product.id}
-                        type="button"
-                        onClick={() =>
-                          addToCart(
-                            product,
-                          )
-                        }
-                        disabled={
-                          stock <= 0
-                        }
-                        className="rounded-xl border border-slate-800 bg-slate-950 p-3 text-left transition hover:border-slate-500 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
+                      <p className="text-lg font-bold">
+                        {Number(product.price).toFixed(2)} $
+                      </p>
 
-                        <div className="mb-3 flex min-h-20 items-center justify-center rounded-lg bg-slate-900 px-2 text-center text-sm font-medium">
-                          {
-                            product.name
-                          }
-                        </div>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Stock : {stock}
+                      </p>
 
-                        <p className="text-lg font-bold">
-                          {Number(
-                            product.price,
-                          ).toFixed(2)}{" "}
-                          $
+                      {product.barcode && (
+                        <p className="mt-1 truncate text-xs text-slate-600">
+                          {product.barcode}
                         </p>
-
-                        <p className="mt-1 text-xs text-slate-500">
-                          Stock :{" "}
-                          {stock}
-                        </p>
-
-                        {product.barcode && (
-                          <p className="mt-1 truncate text-xs text-slate-600">
-                            {
-                              product.barcode
-                            }
-                          </p>
-                        )}
-
-                      </button>
-                    );
-                  },
-                )}
-
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
-
           </section>
 
           {/* ========================================= */}
@@ -836,20 +786,12 @@ export default function POSPage() {
           {/* ========================================= */}
 
           <aside className="h-fit rounded-2xl border border-slate-800 bg-slate-900 p-5">
-
             <div className="mb-5 flex items-center justify-between">
-
-              <h2 className="text-xl font-bold">
-                Panier
-              </h2>
+              <h2 className="text-xl font-bold">Panier</h2>
 
               <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-medium">
-                {itemCount} article
-                {itemCount > 1
-                  ? "s"
-                  : ""}
+                {itemCount} article{itemCount > 1 ? "s" : ""}
               </span>
-
             </div>
 
             {/* ITEMS */}
@@ -860,119 +802,74 @@ export default function POSPage() {
               </div>
             ) : (
               <div className="max-h-[420px] space-y-3 overflow-y-auto">
+                {cart.map((item) => (
+                  <div
+                    key={item.product.id}
+                    className="rounded-xl border border-slate-800 bg-slate-950 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">
+                          {item.product.name}
+                        </p>
 
-                {cart.map(
-                  (item) => (
-                    <div
-                      key={
-                        item.product.id
-                      }
-                      className="rounded-xl border border-slate-800 bg-slate-950 p-3"
-                    >
+                        <p className="text-sm text-slate-500">
+                          {Number(item.product.price).toFixed(2)} $ /
+                          unité
+                        </p>
+                      </div>
 
-                      <div className="flex items-start justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => removeFromCart(item.product.id)}
+                        className="text-xs text-red-400 hover:underline"
+                      >
+                        Supprimer
+                      </button>
+                    </div>
 
-                        <div className="min-w-0">
+                    <div className="mt-3 flex items-center justify-between">
+                      <div className="flex items-center rounded-lg border border-slate-700">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateQuantity(
+                              item.product.id,
+                              item.quantity - 1,
+                            )
+                          }
+                          className="px-3 py-1 text-lg text-slate-300 hover:bg-slate-800"
+                        >
+                          −
+                        </button>
 
-                          <p className="truncate font-medium">
-                            {
-                              item.product
-                                .name
-                            }
-                          </p>
-
-                          <p className="text-sm text-slate-500">
-                            {Number(
-                              item.product
-                                .price,
-                            ).toFixed(
-                              2,
-                            )}{" "}
-                            $ / unité
-                          </p>
-
-                        </div>
+                        <span className="min-w-8 text-center text-sm">
+                          {item.quantity}
+                        </span>
 
                         <button
                           type="button"
                           onClick={() =>
-                            removeFromCart(
-                              item
-                                .product
-                                .id,
+                            updateQuantity(
+                              item.product.id,
+                              item.quantity + 1,
                             )
                           }
-                          className="text-xs text-red-400 hover:underline"
+                          className="px-3 py-1 text-lg text-slate-300 hover:bg-slate-800"
                         >
-                          Supprimer
+                          +
                         </button>
-
                       </div>
 
-                      <div className="mt-3 flex items-center justify-between">
-
-                        <div className="flex items-center rounded-lg border border-slate-700">
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateQuantity(
-                                item
-                                  .product
-                                  .id,
-                                item.quantity -
-                                  1,
-                              )
-                            }
-                            className="px-3 py-1 text-lg text-slate-300 hover:bg-slate-800"
-                          >
-                            −
-                          </button>
-
-                          <span className="min-w-8 text-center text-sm">
-                            {
-                              item.quantity
-                            }
-                          </span>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateQuantity(
-                                item
-                                  .product
-                                  .id,
-                                item.quantity +
-                                  1,
-                              )
-                            }
-                            className="px-3 py-1 text-lg text-slate-300 hover:bg-slate-800"
-                          >
-                            +
-                          </button>
-
-                        </div>
-
-                        <p className="font-semibold">
-                          {(
-                            Number(
-                              item
-                                .product
-                                .price,
-                            ) *
-                            item.quantity
-                          ).toFixed(
-                            2,
-                          )}{" "}
-                          $
-                        </p>
-
-                      </div>
-
+                      <p className="font-semibold">
+                        {(
+                          Number(item.product.price) * item.quantity
+                        ).toFixed(2)}{" "}
+                        $
+                      </p>
                     </div>
-                  ),
-                )}
-
+                  </div>
+                ))}
               </div>
             )}
 
@@ -981,101 +878,85 @@ export default function POSPage() {
             {/* CLIENT */}
 
             <div className="mb-5">
-
               <label className="mb-2 block text-sm font-medium text-slate-300">
                 Client
               </label>
 
               <select
-                value={
-                  selectedCustomer
-                    ?.id ?? ""
-                }
+                value={selectedCustomer?.id ?? ""}
                 onChange={(event) => {
                   const customer =
                     customers.find(
-                      (item) =>
-                        item.id ===
-                        event.target
-                          .value,
+                      (item) => item.id === event.target.value,
                     ) ?? null;
 
-                  setSelectedCustomer(
-                    customer,
-                  );
+                  setSelectedCustomer(customer);
                 }}
                 className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-white"
               >
+                <option value="">Client comptant / aucun</option>
 
-                <option value="">
-                  Client comptant / aucun
-                </option>
-
-                {customers.map(
-                  (customer) => (
-                    <option
-                      key={
-                        customer.id
-                      }
-                      value={
-                        customer.id
-                      }
-                    >
-                      {
-                        getCustomerName(
-                          customer,
-                        )
-                      }
-                    </option>
-                  ),
-                )}
-
+                {customers.map((customer) => (
+                  <option key={customer.id} value={customer.id}>
+                    {getCustomerName(customer)}
+                  </option>
+                ))}
               </select>
+            </div>
 
+            {/* MODE DE PAIEMENT */}
+
+            <div className="mb-5">
+              <label className="mb-2 block text-sm font-medium text-slate-300">
+                Mode de paiement
+              </label>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod("CASH")}
+                  className={`rounded-xl border px-4 py-2.5 text-sm font-semibold transition ${
+                    paymentMethod === "CASH"
+                      ? "border-white bg-white text-slate-950"
+                      : "border-slate-700 text-slate-300 hover:bg-slate-800"
+                  }`}
+                >
+                  💵 Comptant
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod("CARD")}
+                  className={`rounded-xl border px-4 py-2.5 text-sm font-semibold transition ${
+                    paymentMethod === "CARD"
+                      ? "border-white bg-white text-slate-950"
+                      : "border-slate-700 text-slate-300 hover:bg-slate-800"
+                  }`}
+                >
+                  💳 Carte
+                </button>
+              </div>
             </div>
 
             {/* TOTAL */}
 
             <div className="space-y-2 text-sm">
-
               <div className="flex justify-between">
-                <span className="text-slate-500">
-                  Sous-total
-                </span>
-
-                <span>
-                  {subtotal.toFixed(
-                    2,
-                  )}{" "}
-                  $
-                </span>
+                <span className="text-slate-500">Sous-total</span>
+                <span>{subtotal.toFixed(2)} $</span>
               </div>
 
               <div className="flex justify-between">
                 <span className="text-slate-500">
                   Taxes ({taxRate}%)
                 </span>
-
-                <span>
-                  {tax.toFixed(2)} $
-                </span>
+                <span>{tax.toFixed(2)} $</span>
               </div>
 
               <div className="mt-3 flex justify-between border-t border-slate-800 pt-3 text-xl font-bold">
-
-                <span>
-                  Total
-                </span>
-
-                <span>
-                  {total.toFixed(
-                    2,
-                  )}{" "}
-                  $
-                </span>
-
+                <span>Total</span>
+                <span>{total.toFixed(2)} $</span>
               </div>
-
             </div>
 
             {/* CHECKOUT */}
@@ -1085,21 +966,49 @@ export default function POSPage() {
               onClick={checkout}
               disabled={
                 cart.length === 0 ||
-                checkoutLoading
+                checkoutLoading ||
+                paymentIntentLoading
               }
               className="mt-5 w-full rounded-xl bg-white px-4 py-3 font-semibold text-slate-950 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {checkoutLoading
-                ? "Enregistrement..."
-                : `Payer ${total.toFixed(
-                    2,
-                  )} $ comptant`}
+              {paymentIntentLoading
+                ? "Préparation du paiement..."
+                : checkoutLoading
+                  ? "Enregistrement..."
+                  : paymentMethod === "CASH"
+                    ? `Payer ${total.toFixed(2)} $ comptant`
+                    : `Payer ${total.toFixed(2)} $ par carte`}
             </button>
-
           </aside>
-
         </div>
       </div>
+
+      {/* MODALE PAIEMENT STRIPE */}
+
+      {showPaymentModal && clientSecret && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+    <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 p-6">
+      <div className="mb-5 flex items-center justify-between">
+        <h3 className="text-lg font-bold">Paiement par carte</h3>
+
+        <span className="text-sm text-slate-400">
+          {total.toFixed(2)} $
+        </span>
+      </div>
+
+      <Elements
+        stripe={stripePromise}
+        options={{ clientSecret }}
+      >
+        <StripePaymentForm
+          paymentIntentId={paymentIntentId}
+          onSuccess={handleCardPaymentSuccess}
+          onClose={handlePaymentModalClose}
+        />
+      </Elements>
+    </div>
+  </div>
+)}
     </main>
   );
 }
