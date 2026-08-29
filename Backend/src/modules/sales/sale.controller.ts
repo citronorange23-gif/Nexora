@@ -11,6 +11,7 @@ import {
   refundSale,
 } from "./sale.service.js";
 
+
 function getAuth(req: Request) {
   return (req as AuthenticatedRequest).user;
 }
