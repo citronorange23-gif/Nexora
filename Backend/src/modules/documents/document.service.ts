@@ -75,9 +75,12 @@ export async function createInvoiceForSale(
   sale: {
     id: string;
     customerId: string | null;
-    subtotal: number | string;
-    tax: number | string;
-    total: number | string;
+    // Peut être un number/string (valeurs calculées en mémoire)
+    // ou un Prisma.Decimal (valeurs relues depuis la DB) — les
+    // deux sont acceptés par Prisma en écriture.
+    subtotal: unknown;
+    tax: unknown;
+    total: unknown;
   },
 ) {
   const existing = await tx.invoice.findUnique({
@@ -99,9 +102,9 @@ export async function createInvoiceForSale(
       number,
       status: "PAID",
 
-      subtotal: sale.subtotal,
-      tax: sale.tax,
-      total: sale.total,
+      subtotal: sale.subtotal as never,
+      tax: sale.tax as never,
+      total: sale.total as never,
 
       organizationId,
       saleId: sale.id,
