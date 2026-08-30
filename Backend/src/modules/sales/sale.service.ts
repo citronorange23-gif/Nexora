@@ -1,6 +1,7 @@
 import { db } from "../../lib/db.js";
 import type { CreateSaleInput } from "./sale.schema.js";
 import { refundStripePayment } from "../payments/payment.service.js"
+import { createInvoiceForSale } from "../documents/document.service.js";
 
 import { mailer } from "../../lib/mailer.js";
 
@@ -193,6 +194,20 @@ const sale = await tx.sale.create({
           },
         });
       }
+
+      // ─────────────────────────────
+      // 7. Facture (paiement comptant payé immédiatement —
+      //    pour CARD, la facture est créée par le webhook Stripe
+      //    une fois le paiement réellement confirmé)
+      // ─────────────────────────────
+
+      const invoice = await createInvoiceForSale(
+        tx,
+        organizationId,
+        sale,
+      );
+
+      return { ...sale, invoice };
     }
 
     return sale;
@@ -211,6 +226,7 @@ export async function getSales(organizationId: string) {
       customer: true,
       items: { include: { product: true } },
       payment: true,
+      invoice: true,
     },
     orderBy: { createdAt: "desc" },
   });
@@ -233,6 +249,7 @@ export async function getSaleById(
         },
       },
       payment: true,
+      invoice: true,
     },
   });
 }

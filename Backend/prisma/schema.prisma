@@ -69,6 +69,13 @@ enum SaleStatus {
   REFUNDED
 }
 
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  VOID
+}
+
 enum PermissionAction {
   VIEW
   CREATE
@@ -107,6 +114,8 @@ model Organization {
   sales              Sale[]
   roles              Role[]
   stripeAccount      StripeAccount?
+  invoices           Invoice[]
+  documentCounters   DocumentCounter[]
 
   @@map("organizations")
 }
@@ -267,7 +276,8 @@ model Customer {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  sales Sale[]
+  sales    Sale[]
+  invoices Invoice[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -294,6 +304,7 @@ model Sale {
 
   items   SaleItem[]
   payment Payment?
+  invoice Invoice?
 
   createdAt DateTime @default(now())
 
@@ -373,4 +384,59 @@ model RolePermission {
   @@unique([roleId, module, action])
   @@index([roleId])
   @@map("role_permissions")
+}
+
+// =====================================================
+// DOCUMENTS — Phase 1 : Factures
+// =====================================================
+
+model Invoice {
+  id     String        @id @default(uuid())
+  number String
+  status InvoiceStatus @default(ISSUED)
+
+  subtotal Decimal @db.Decimal(12, 2)
+  tax      Decimal @db.Decimal(12, 2)
+  total    Decimal @db.Decimal(12, 2)
+  currency String  @default("CAD")
+
+  issuedAt DateTime  @default(now())
+  dueAt    DateTime?
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Une vente ne peut avoir qu'une seule facture (relation 1-1).
+  saleId String @unique
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Numéro unique par organisation (ex: INV-2026-000001).
+  @@unique([organizationId, number])
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@index([customerId])
+  @@map("invoices")
+}
+
+// Compteur atomique utilisé pour générer les numéros de documents
+// (factures, puis devis/reçus dans les phases suivantes).
+model DocumentCounter {
+  id String @id @default(uuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  prefix     String
+  year       Int
+  lastNumber Int @default(0)
+
+  @@unique([organizationId, prefix, year])
+  @@map("document_counters")
 }

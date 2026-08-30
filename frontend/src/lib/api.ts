@@ -40,3 +40,41 @@ export async function apiFetch<T>(
 
   return data;
 }
+
+/**
+ * Comme apiFetch, mais pour les endpoints qui renvoient un
+ * fichier binaire (ex: PDF) plutôt que du JSON.
+ */
+export async function apiFetchBlob(
+  endpoint: string,
+  options: RequestInit = {},
+): Promise<Blob> {
+  const token =
+    typeof window !== "undefined"
+      ? localStorage.getItem("nexora_token")
+      : null;
+
+  const response = await fetch(
+    `${API_URL}${endpoint}`,
+    {
+      ...options,
+      headers: {
+        ...(token
+          ? {
+              Authorization: `Bearer ${token}`,
+            }
+          : {}),
+
+        ...options.headers,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      "Une erreur est survenue",
+    );
+  }
+
+  return response.blob();
+}

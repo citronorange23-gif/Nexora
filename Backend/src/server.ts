@@ -18,6 +18,7 @@ import customerRoutes from "./modules/customers/customer.routes.js"
 
 import paymentRoutes from "./modules/payments/payment.routes.js";
 import settingsRoutes from "./modules/settings/settings.routes.js"
+import documentRoutes from "./modules/documents/document.routes.js";
 
 import { stripeWebhook } from "./modules/payments/payment.controller.js";
 
@@ -62,6 +63,7 @@ app.use("/api/customers", customerRoutes);
 
 app.use("/api/payments", paymentRoutes);
 app.use("/api/settings", settingsRoutes)
+app.use("/api/documents", documentRoutes);
 
 app.listen(PORT, () => {
   console.log(`🚀 Nexora API running on http://localhost:${PORT}`);

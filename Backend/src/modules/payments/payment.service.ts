@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 
 import { db } from "../../lib/db.js";
+import { createInvoiceForSale } from "../documents/document.service.js";
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 
@@ -587,6 +588,14 @@ export async function handleStripeWebhookEvent(
         },
       });
     }
+
+    // Facture créée seulement maintenant : le paiement carte
+    // est confirmé par Stripe via le webhook, pas par le frontend.
+    await createInvoiceForSale(
+      tx,
+      payment.sale.organizationId,
+      payment.sale,
+    );
   });
 
   break;

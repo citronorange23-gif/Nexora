@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { Elements } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
 import { BrowserMultiFormatReader } from "@zxing/browser";
@@ -126,6 +127,7 @@ export default function POSPage() {
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [pendingReceipt, setPendingReceipt] = useState<{
     saleId: string;
+    invoiceId?: string;
     items: CartItem[];
     customer: Customer | null;
     subtotal: number;
@@ -639,7 +641,7 @@ async function checkoutCash() {
 async function createSale(payment: Record<string, unknown>) {
   const saleResponse = await apiFetch<{
     success: boolean;
-    data: { id: string };
+    data: { id: string; invoice?: { id: string } | null };
   }>("/api/sales", {
     method: "POST",
     body: JSON.stringify({
@@ -655,6 +657,7 @@ async function createSale(payment: Record<string, unknown>) {
 
   setPendingReceipt({
     saleId: saleResponse.data.id,
+    invoiceId: saleResponse.data.invoice?.id,
     items: cart,
     customer: selectedCustomer,
     subtotal,
@@ -1301,6 +1304,26 @@ async function createSale(payment: Record<string, unknown>) {
           ]}
         >
           <div className="rounded-xl border border-slate-700 p-3">
+            <p className="mb-2 text-sm font-medium">
+              📄 Facture
+            </p>
+
+            {pendingReceipt.invoiceId ? (
+              <Link
+                href={`/dashboard/documents/${pendingReceipt.invoiceId}`}
+                className="inline-flex rounded-lg border border-slate-700 px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white"
+              >
+                Voir la facture
+              </Link>
+            ) : (
+              <p className="text-sm text-slate-500">
+                La facture sera disponible dans Documents une
+                fois le paiement confirmé par Stripe.
+              </p>
+            )}
+          </div>
+
+          <div className="mt-3 rounded-xl border border-slate-700 p-3">
             <p className="mb-2 text-sm font-medium">
               ✉️ Envoyer par courriel
             </p>
