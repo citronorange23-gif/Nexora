@@ -17,6 +17,8 @@ import roleRoutes from "./modules/roles/role.routes.js";
 import customerRoutes from "./modules/customers/customer.routes.js"
 
 import paymentRoutes from "./modules/payments/payment.routes.js";
+import settingsRoutes from "./modules/settings/settings.routes.js"
+
 import { stripeWebhook } from "./modules/payments/payment.controller.js";
 
 dotenv.config();
@@ -59,6 +61,7 @@ app.use("/api/roles", roleRoutes);
 app.use("/api/customers", customerRoutes);
 
 app.use("/api/payments", paymentRoutes);
+app.use("/api/settings", settingsRoutes)
 
 app.listen(PORT, () => {
   console.log(`🚀 Nexora API running on http://localhost:${PORT}`);

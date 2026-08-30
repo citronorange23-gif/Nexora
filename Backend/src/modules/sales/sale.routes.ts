@@ -9,6 +9,7 @@ import {
   getOne,
   cancel,
   refund,
+  emailReceipt,
 } from "./sale.controller.js";
 
 const router = Router();
@@ -43,6 +44,12 @@ router.post(
   "/:id/refund",
   requirePermission("SALES", "UPDATE"),
   refund,
+);
+
+router.post(
+  "/:id/email",
+  requirePermission("SALES", "VIEW"),
+  emailReceipt,
 );
 
 export default router;  

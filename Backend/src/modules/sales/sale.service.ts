@@ -2,6 +2,8 @@ import { db } from "../../lib/db.js";
 import type { CreateSaleInput } from "./sale.schema.js";
 import { refundStripePayment } from "../payments/payment.service.js"
 
+import { mailer } from "../../lib/mailer.js";
+
 export async function createSale(
   organizationId: string,
   input: CreateSaleInput,
@@ -431,5 +433,73 @@ export async function refundSale(
     });
 
     return updatedSale;
+  });
+}
+
+function buildReceiptHtml(sale: NonNullable<Awaited<ReturnType<typeof getSaleById>>>) {
+  const rows = sale.items
+    .map(
+      (item) => `
+        <tr>
+          <td>${item.product.name}</td>
+          <td style="text-align:center">${item.quantity}</td>
+          <td style="text-align:right">${Number(item.unitPrice).toFixed(2)} $</td>
+          <td style="text-align:right">${Number(item.totalPrice).toFixed(2)} $</td>
+        </tr>`,
+    )
+    .join("");
+
+  return `
+    <div style="font-family: sans-serif; max-width: 400px; margin: 0 auto;">
+      <h2 style="text-align:center">Nexora</h2>
+      <p style="text-align:center; color:#666;">
+        ${new Date(sale.createdAt).toLocaleString("fr-CA")}
+      </p>
+      <hr />
+      <table style="width:100%; font-size:14px; border-collapse: collapse;">
+        <thead>
+          <tr>
+            <th style="text-align:left">Article</th>
+            <th>Qté</th>
+            <th style="text-align:right">P.U.</th>
+            <th style="text-align:right">Total</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <hr />
+      <table style="width:100%; font-size:14px;">
+        <tr><td>Sous-total</td><td style="text-align:right">${Number(sale.subtotal).toFixed(2)} $</td></tr>
+        <tr><td>Taxes</td><td style="text-align:right">${Number(sale.tax).toFixed(2)} $</td></tr>
+        <tr><td><strong>Total</strong></td><td style="text-align:right"><strong>${Number(sale.total).toFixed(2)} $</strong></td></tr>
+      </table>
+      <hr />
+      <p style="text-align:center; color:#666;">Merci de votre visite!</p>
+    </div>
+  `;
+}
+
+export async function emailSaleReceipt(
+  organizationId: string,
+  saleId: string,
+  email: string,
+) {
+  const sale = await getSaleById(organizationId, saleId);
+
+  if (!sale) {
+    throw new Error("SALE_NOT_FOUND");
+  }
+
+  const business = await db.business.findUnique({
+    where: { organizationId },
+    select: { name: true, receiptEmail: true },
+  });
+
+  await mailer.sendMail({
+    from: `"${business?.name ?? "Nexora"}" <${process.env.SMTP_FROM}>`,
+    replyTo: business?.receiptEmail ?? undefined,
+    to: email,
+    subject: "Votre reçu Nexora",
+    html: buildReceiptHtml(sale),
   });
 }

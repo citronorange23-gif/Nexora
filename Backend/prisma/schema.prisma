@@ -130,18 +130,19 @@ model OrganizationMember {
 }
 
 model Business {
-  id         String       @id @default(uuid())
-  name       String
-  type       BusinessType
-  phone      String?
-  email      String?
-  address    String?
-  city       String?
-  province   String?
-  postalCode String?
-  country    String       @default("CA")
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
+  id           String       @id @default(uuid())
+  name         String
+  type         BusinessType
+  phone        String?
+  email        String?
+  receiptEmail String?
+  address      String?
+  city         String?
+  province     String?
+  postalCode   String?
+  country      String       @default("CA")
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
   organizationId String       @unique
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)

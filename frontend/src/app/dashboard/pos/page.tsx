@@ -7,6 +7,13 @@ import { BrowserMultiFormatReader } from "@zxing/browser";
 import { apiFetch } from "@/lib/api";
 import StripePaymentForm from "@/components/ui/StripePaymentForm";
 
+import ConfirmationModal from "@/components/ui/ConfirmationModal";
+
+import qz from "qz-tray";
+
+// Nom exact de l'imprimante tel qu'il apparaît dans les paramètres de l'OS
+const RECEIPT_PRINTER_NAME = "EPSON TM-T20III";
+
 type Product = {
   id: string;
   name: string;
@@ -90,6 +97,20 @@ export default function POSPage() {
   const [clientSecret, setClientSecret] = useState("");
   const [paymentIntentId, setPaymentIntentId] = useState("");
 
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [pendingReceipt, setPendingReceipt] = useState<{
+    saleId: string;
+    items: CartItem[];
+    customer: Customer | null;
+    subtotal: number;
+    tax: number;
+    taxRate: number;
+    total: number;
+    paymentMethod: PaymentMethod;
+  } | null>(null);
+  const [receiptEmail, setReceiptEmail] = useState("");
+  const [sendingReceiptEmail, setSendingReceiptEmail] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const readerRef =
@@ -141,6 +162,18 @@ export default function POSPage() {
 
     loadData();
   }, []);
+
+  useEffect(() => {
+  qz.websocket.connect().catch((err: unknown) => {
+    console.error("QZ Tray non connecté:", err);
+  });
+
+  return () => {
+    if (qz.websocket.isActive()) {
+      qz.websocket.disconnect();
+    }
+  };
+}, []);
 
   /*
    * =====================================================
@@ -442,53 +475,179 @@ export default function POSPage() {
    * =====================================================
    */
 
-  async function createSale(payment: Record<string, unknown>) {
-    await apiFetch("/api/sales", {
+    function buildReceiptCommands(receipt: {
+  items: CartItem[];
+  customer: Customer | null;
+  subtotal: number;
+  tax: number;
+  taxRate: number;
+  total: number;
+  paymentMethod: PaymentMethod;
+}) {
+  const ESC = "\x1B";
+  const GS = "\x1D";
+
+  let cmds = "";
+  cmds += ESC + "@"; // init
+  cmds += ESC + "a" + "\x01"; // centrer
+  cmds += ESC + "E" + "\x01" + "NEXORA\n" + ESC + "E" + "\x00";
+  cmds += new Date().toLocaleString("fr-CA") + "\n";
+  cmds += "--------------------------------\n";
+  cmds += ESC + "a" + "\x00"; // gauche
+
+  if (receipt.customer) {
+    cmds += `Client: ${getCustomerName(receipt.customer)}\n`;
+    cmds += "--------------------------------\n";
+  }
+
+  for (const item of receipt.items) {
+    const name = item.product.name.slice(0, 20).padEnd(20, " ");
+    const qty = String(item.quantity).padStart(3, " ");
+    const lineTotal = (Number(item.product.price) * item.quantity)
+      .toFixed(2)
+      .padStart(8, " ");
+    cmds += `${name}${qty}${lineTotal}\n`;
+  }
+
+  cmds += "--------------------------------\n";
+  cmds += `Sous-total:${receipt.subtotal.toFixed(2).padStart(21, " ")} $\n`;
+  cmds += `Taxes (${receipt.taxRate}%):${receipt.tax.toFixed(2).padStart(17, " ")} $\n`;
+  cmds += ESC + "E" + "\x01";
+  cmds += `TOTAL:${receipt.total.toFixed(2).padStart(25, " ")} $\n`;
+  cmds += ESC + "E" + "\x00";
+  cmds += "--------------------------------\n";
+  cmds += ESC + "a" + "\x01";
+  cmds += `Paiement: ${receipt.paymentMethod === "CASH" ? "Comptant" : "Carte"}\n`;
+  cmds += "Merci de votre visite!\n\n\n";
+
+  if (receipt.paymentMethod === "CASH") {
+    cmds += ESC + "p" + "\x00" + "\x19" + "\xFA";
+  }
+
+  cmds += GS + "V" + "\x01";
+
+  return cmds;
+}
+
+async function printReceiptQZ(receipt: {
+  items: CartItem[];
+  customer: Customer | null;
+  subtotal: number;
+  tax: number;
+  taxRate: number;
+  total: number;
+  paymentMethod: PaymentMethod;
+}) {
+  try {
+    if (!qz.websocket.isActive()) {
+      await qz.websocket.connect();
+    }
+
+    const foundPrinter = await qz.printers.find(RECEIPT_PRINTER_NAME);
+    const printerName = Array.isArray(foundPrinter) ? foundPrinter[0] : foundPrinter;
+    const config = qz.configs.create(printerName);
+    const commands = buildReceiptCommands(receipt);
+
+    await qz.print(config, [
+      { type: "raw", format: "command", flavor: "plain", data: commands },
+    ]);
+  } catch (err) {
+    console.error("Erreur impression QZ Tray:", err);
+    setError("Impossible d'imprimer le reçu (vérifie que QZ Tray est lancé).");
+  }
+}
+
+async function emailReceipt() {
+  if (!pendingReceipt || !receiptEmail.trim()) {
+    setError("Entre un courriel valide.");
+    return;
+  }
+
+  try {
+    setSendingReceiptEmail(true);
+    setError("");
+
+    await apiFetch(`/api/sales/${pendingReceipt.saleId}/email`, {
       method: "POST",
-
-      body: JSON.stringify({
-        customerId: selectedCustomer?.id,
-
-        items: cart.map((item) => ({
-          productId: item.product.id,
-          quantity: item.quantity,
-        })),
-
-        taxRate,
-
-        payment,
-      }),
+      body: JSON.stringify({ email: receiptEmail.trim() }),
     });
 
-    setCart([]);
-    setSelectedCustomer(null);
-    setSearch("");
-    setBarcode("");
-    setPaymentMethod("CASH");
+    setShowReceiptModal(false);
+    setPendingReceipt(null);
+    setSuccess("Reçu envoyé par courriel.");
+  } catch (err) {
+    console.error(err);
+    setError("Impossible d'envoyer le reçu par courriel.");
+  } finally {
+    setSendingReceiptEmail(false);
+  }
+}
 
-    setSuccess("Vente enregistrée avec succès.");
+function closeReceiptModal() {
+  setShowReceiptModal(false);
+  setPendingReceipt(null);
+  setReceiptEmail("");
+}
+
+async function checkoutCash() {
+  if (cart.length === 0) {
+    setError("Le panier est vide.");
+    return;
   }
 
-  async function checkoutCash() {
-    if (cart.length === 0) {
-      setError("Le panier est vide.");
-      return;
-    }
+  try {
+    setCheckoutLoading(true);
+    setError("");
+    setSuccess("");
 
-    try {
-      setCheckoutLoading(true);
-      setError("");
-      setSuccess("");
+    await createSale({ method: "CASH" });
+  } catch (err) {
+    console.error(err);
 
-      await createSale({ method: "CASH" });
-    } catch (err) {
-      console.error(err);
-
-      setError("Impossible d'enregistrer la vente.");
-    } finally {
-      setCheckoutLoading(false);
-    }
+    setError("Impossible d'enregistrer la vente.");
+  } finally {
+    setCheckoutLoading(false);
   }
+}
+
+async function createSale(payment: Record<string, unknown>) {
+  const saleResponse = await apiFetch<{
+    success: boolean;
+    data: { id: string };
+  }>("/api/sales", {
+    method: "POST",
+    body: JSON.stringify({
+      customerId: selectedCustomer?.id,
+      items: cart.map((item) => ({
+        productId: item.product.id,
+        quantity: item.quantity,
+      })),
+      taxRate,
+      payment,
+    }),
+  });
+
+  setPendingReceipt({
+    saleId: saleResponse.data.id,
+    items: cart,
+    customer: selectedCustomer,
+    subtotal,
+    tax,
+    taxRate,
+    total,
+    paymentMethod,
+  });
+  setReceiptEmail(selectedCustomer?.email ?? "");
+  setShowReceiptModal(true);
+
+  setCart([]);
+  setSelectedCustomer(null);
+  setSearch("");
+  setBarcode("");
+  setPaymentMethod("CASH");
+
+  setSuccess("Vente enregistrée avec succès.");
+}
 
   /*
    * =====================================================
@@ -546,26 +705,116 @@ export default function POSPage() {
 }
 
   function handleCardPaymentSuccess() {
-  setShowPaymentModal(false);
-  setClientSecret("");
-  setPaymentIntentId("");
-  setPendingSaleId("");
+    setPendingReceipt({
+      saleId: pendingSaleId,
+      items: cart,
+      customer: selectedCustomer,
+      subtotal,
+      tax,
+      taxRate,
+      total,
+      paymentMethod: "CARD",
+    });
+    setReceiptEmail(selectedCustomer?.email ?? "");
+    setShowReceiptModal(true);
 
-  setCart([]);
-  setSelectedCustomer(null);
-  setSearch("");
-  setBarcode("");
-  setPaymentMethod("CASH");
+    setShowPaymentModal(false);
+    setClientSecret("");
+    setPaymentIntentId("");
+    setPendingSaleId("");
 
-  setSuccess(
-    "Paiement envoyé. La vente sera confirmée une fois validée par Stripe.",
-  );
-}
+    setCart([]);
+    setSelectedCustomer(null);
+    setSearch("");
+    setBarcode("");
+    setPaymentMethod("CASH");
+
+    setSuccess(
+      "Paiement envoyé. La vente sera confirmée une fois validée par Stripe.",
+    );
+  }
 
   function handlePaymentModalClose() {
     setShowPaymentModal(false);
     setClientSecret("");
     setPaymentIntentId("");
+  }
+
+  function printReceipt(receipt: {
+    items: CartItem[];
+    customer: Customer | null;
+    subtotal: number;
+    tax: number;
+    taxRate: number;
+    total: number;
+    paymentMethod: PaymentMethod;
+  }) {
+    const printWindow = window.open("", "_blank", "width=380,height=600");
+    if (!printWindow) return;
+
+    const rows = receipt.items
+      .map(
+        (item) => `
+          <tr>
+            <td>${item.product.name}</td>
+            <td style="text-align:center">${item.quantity}</td>
+            <td style="text-align:right">${Number(item.product.price).toFixed(2)} $</td>
+            <td style="text-align:right">${(Number(item.product.price) * item.quantity).toFixed(2)} $</td>
+          </tr>`,
+      )
+      .join("");
+
+    const customerLine = receipt.customer
+      ? `<p>Client : ${getCustomerName(receipt.customer)}</p>`
+      : "";
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Reçu</title>
+          <style>
+            body { font-family: monospace; width: 280px; margin: 0 auto; padding: 10px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th, td { padding: 2px 0; }
+            .totals td { padding-top: 4px; }
+            h2 { text-align: center; margin-bottom: 4px; }
+            .center { text-align: center; }
+            hr { border: none; border-top: 1px dashed #000; margin: 8px 0; }
+          </style>
+        </head>
+        <body>
+          <h2>Nexora</h2>
+          <p class="center">${new Date().toLocaleString("fr-CA")}</p>
+          <hr />
+          ${customerLine}
+          <table>
+            <thead>
+              <tr>
+                <th style="text-align:left">Article</th>
+                <th>Qté</th>
+                <th style="text-align:right">P.U.</th>
+                <th style="text-align:right">Total</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <hr />
+          <table class="totals">
+            <tr><td>Sous-total</td><td style="text-align:right">${receipt.subtotal.toFixed(2)} $</td></tr>
+            <tr><td>Taxes (${receipt.taxRate}%)</td><td style="text-align:right">${receipt.tax.toFixed(2)} $</td></tr>
+            <tr><td><strong>Total</strong></td><td style="text-align:right"><strong>${receipt.total.toFixed(2)} $</strong></td></tr>
+          </table>
+          <hr />
+          <p class="center">Paiement : ${receipt.paymentMethod === "CASH" ? "Comptant" : "Carte"}</p>
+          <p class="center">Merci de votre visite!</p>
+        </body>
+      </html>
+    `);
+
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    printWindow.close();
   }
 
   function checkout() {
@@ -986,29 +1235,71 @@ export default function POSPage() {
       {/* MODALE PAIEMENT STRIPE */}
 
       {showPaymentModal && clientSecret && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-    <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 p-6">
-      <div className="mb-5 flex items-center justify-between">
-        <h3 className="text-lg font-bold">Paiement par carte</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 p-6">
+            <div className="mb-5 flex items-center justify-between">
+              <h3 className="text-lg font-bold">Paiement par carte</h3>
 
-        <span className="text-sm text-slate-400">
-          {total.toFixed(2)} $
-        </span>
-      </div>
+              <span className="text-sm text-slate-400">
+                {total.toFixed(2)} $
+              </span>
+            </div>
 
-      <Elements
-        stripe={stripePromise}
-        options={{ clientSecret }}
-      >
-        <StripePaymentForm
-          paymentIntentId={paymentIntentId}
-          onSuccess={handleCardPaymentSuccess}
-          onClose={handlePaymentModalClose}
-        />
-      </Elements>
-    </div>
-  </div>
-)}
+            <Elements stripe={stripePromise} options={{ clientSecret }}>
+              <StripePaymentForm
+                paymentIntentId={paymentIntentId}
+                onSuccess={handleCardPaymentSuccess}
+                onClose={handlePaymentModalClose}
+              />
+            </Elements>
+          </div>
+        </div>
+      )}
+
+      {/* MODALE CHOIX REÇU */}
+
+      {showReceiptModal && pendingReceipt && (
+        <ConfirmationModal
+          title="Reçu"
+          text={`Vente enregistrée — ${pendingReceipt.total.toFixed(2)} $`}
+          onCancel={closeReceiptModal}
+          cancelText="Aucun reçu"
+          actions={[
+            {
+              label: "🖨️ Imprimer la facture",
+              onClick: () => {
+                printReceiptQZ(pendingReceipt);
+                closeReceiptModal();
+              },
+            },
+          ]}
+        >
+          <div className="rounded-xl border border-slate-700 p-3">
+            <p className="mb-2 text-sm font-medium">
+              ✉️ Envoyer par courriel
+            </p>
+
+            <div className="flex gap-2">
+              <input
+                type="email"
+                value={receiptEmail}
+                onChange={(event) => setReceiptEmail(event.target.value)}
+                placeholder="client@courriel.com"
+                className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-white"
+              />
+
+              <button
+                type="button"
+                onClick={emailReceipt}
+                disabled={sendingReceiptEmail}
+                className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {sendingReceiptEmail ? "..." : "Envoyer"}
+              </button>
+            </div>
+          </div>
+        </ConfirmationModal>
+      )}
     </main>
   );
 }

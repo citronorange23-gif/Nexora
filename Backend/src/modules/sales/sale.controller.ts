@@ -9,6 +9,7 @@ import {
   getSaleById,
   cancelSale,
   refundSale,
+  emailSaleReceipt,
 } from "./sale.service.js";
 
 
@@ -246,6 +247,50 @@ export async function refund(
     return res.status(500).json({
       success: false,
       error: "Unable to refund sale",
+    });
+  }
+}
+
+export async function emailReceipt(
+  req: Request,
+  res: Response,
+) {
+  try {
+    const auth = getAuth(req);
+
+    const saleId = req.params.id;
+    const email = req.body?.email;
+
+    if (!saleId || Array.isArray(saleId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid sale ID",
+      });
+    }
+
+    if (!email || typeof email !== "string") {
+      return res.status(400).json({
+        success: false,
+        error: "Email required",
+      });
+    }
+
+    await emailSaleReceipt(auth.organizationId, saleId, email);
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+
+    if (error instanceof Error && error.message === "SALE_NOT_FOUND") {
+      return res.status(404).json({
+        success: false,
+        error: "Sale not found",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: "Unable to email receipt",
     });
   }
 }
