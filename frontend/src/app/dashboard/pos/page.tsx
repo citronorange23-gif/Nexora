@@ -11,6 +11,32 @@ import ConfirmationModal from "@/components/ui/ConfirmationModal";
 
 import qz from "qz-tray";
 
+let qzConnectionPromise: Promise<void> | null = null;
+let qzUnavailable = false;
+
+function connectQZ() {
+  if (qz.websocket.isActive()) {
+    return Promise.resolve();
+  }
+
+  if (qzUnavailable) {
+    return Promise.reject(new Error("QZ_UNAVAILABLE"));
+  }
+
+  if (!qzConnectionPromise) {
+    qzConnectionPromise = qz.websocket
+      .connect()
+      .catch((err: unknown) => {
+        console.error("QZ Tray non connecté (aucune nouvelle tentative ne sera faite) :", err);
+        qzUnavailable = true;
+        qzConnectionPromise = null;
+        throw err;
+      });
+  }
+
+  return qzConnectionPromise;
+}
+
 // Nom exact de l'imprimante tel qu'il apparaît dans les paramètres de l'OS
 const RECEIPT_PRINTER_NAME = "EPSON TM-T20III";
 
@@ -164,16 +190,8 @@ export default function POSPage() {
   }, []);
 
   useEffect(() => {
-  qz.websocket.connect().catch((err: unknown) => {
-    console.error("QZ Tray non connecté:", err);
-  });
-
-  return () => {
-    if (qz.websocket.isActive()) {
-      qz.websocket.disconnect();
-    }
-  };
-}, []);
+    connectQZ();
+  }, []);
 
   /*
    * =====================================================
@@ -539,12 +557,15 @@ async function printReceiptQZ(receipt: {
   paymentMethod: PaymentMethod;
 }) {
   try {
-    if (!qz.websocket.isActive()) {
-      await qz.websocket.connect();
+    await connectQZ();
+
+    const printerName = await qz.printers.getDefault();
+
+    if (!printerName) {
+      setError("Aucune imprimante par défaut trouvée sur ce poste.");
+      return;
     }
 
-    const foundPrinter = await qz.printers.find(RECEIPT_PRINTER_NAME);
-    const printerName = Array.isArray(foundPrinter) ? foundPrinter[0] : foundPrinter;
     const config = qz.configs.create(printerName);
     const commands = buildReceiptCommands(receipt);
 
@@ -552,6 +573,11 @@ async function printReceiptQZ(receipt: {
       { type: "raw", format: "command", flavor: "plain", data: commands },
     ]);
   } catch (err) {
+    if (err instanceof Error && err.message === "QZ_UNAVAILABLE") {
+      setError("QZ Tray n'est pas lancé. Lance l'application puis recharge la page.");
+      return;
+    }
+
     console.error("Erreur impression QZ Tray:", err);
     setError("Impossible d'imprimer le reçu (vérifie que QZ Tray est lancé).");
   }

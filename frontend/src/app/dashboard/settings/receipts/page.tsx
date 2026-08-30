@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 
+import BackButton from "@/components/ui/BackButton";
+
 type SettingsResponse = {
   success: boolean;
   data: { name: string; receiptEmail: string | null } | null;
@@ -66,10 +68,13 @@ export default function ReceiptSettingsPage() {
     <main className="min-h-screen bg-slate-950 px-4 py-6 text-white md:px-6">
       <div className="mx-auto max-w-2xl">
         <div className="mb-6">
+          <BackButton href="/dashboard/settings">
+            Retour aux paramètres
+          </BackButton>
           <h1 className="text-3xl font-bold tracking-tight">Factures</h1>
 
           <p className="mt-1 text-sm text-slate-400">
-            Choisis l'adresse courriel utilisée pour recevoir les
+            Choisis l&apos;adresse courriel utilisée pour recevoir les
             réponses des clients à leurs reçus.
           </p>
         </div>
@@ -112,6 +117,59 @@ export default function ReceiptSettingsPage() {
             </button>
           </div>
         )}
+        <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-6">
+          <p className="font-semibold">🖨️ Imprimer les reçus à la caisse</p>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Pour imprimer les reçus directement sur ton imprimante de
+            caisse, installe QZ Tray une seule fois sur l&apos;ordinateur
+            de la caisse.
+          </p>
+
+          <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-400">
+            <li>
+              Télécharge et installe QZ Tray :{" "}
+              <a
+                href="https://qz.io/download/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-white underline underline-offset-2 hover:text-slate-300"
+              >
+                qz.io/download
+              </a>
+            </li>
+
+            <li>
+              Lance QZ Tray — une icône apparaît dans la barre système.
+              Laisse-le tourner en arrière-plan.
+            </li>
+
+            <li>
+              Ouvre la caisse dans le navigateur. Au premier chargement,
+              QZ Tray demande une autorisation — clique sur
+              &quot;Allow&quot; / &quot;Autoriser&quot;.
+            </li>
+
+            <li>
+              Assure-toi que l&apos;imprimante de reçus est bien
+              installée comme imprimante normale (format 80mm,
+              marges à zéro).
+            </li>
+
+            <li>
+              Définis cette imprimante comme <strong>imprimante par
+              défaut</strong> sur ce poste — la caisse s&apos;en sert
+              automatiquement, sans configuration supplémentaire.
+            </li>
+          </ol>
+
+          <p className="mt-4 text-xs text-slate-600">
+            QZ Tray démarre automatiquement avec l&apos;ordinateur après
+            l&apos;installation — aucune autre manipulation nécessaire
+            ensuite. Si l&apos;impression ne fonctionne pas, vérifie que
+            l&apos;icône QZ Tray est bien présente dans la barre système.
+          </p>
+        </div>
       </div>
     </main>
   );

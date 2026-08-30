@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import BackButton from "@/components/ui/BackButton";
 
 type SettingsLink = {
   label: string;
@@ -28,15 +29,12 @@ export default function SettingsPage() {
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-6 text-white md:px-6">
       <div className="mx-auto max-w-2xl">
-        <div className="mb-6">
-          <Link
-            href="/dashboard"
-            className="text-sm text-slate-500 transition hover:text-slate-300"
-          >
-            ← Retour au tableau de bord
-          </Link>
+       <div className="mb-6">
+          <BackButton href="/dashboard">
+            Retour au tableau de bord
+          </BackButton>
 
-          <h1 className="mt-2 text-3xl font-bold tracking-tight">
+          <h1 className="text-3xl font-bold tracking-tight">
             Paramètres
           </h1>
 

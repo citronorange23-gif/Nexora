@@ -5,6 +5,8 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 
+import BackButton from "@/components/ui/BackButton";
+
 type ConnectStatusResponse = {
   success: boolean;
   data: {
@@ -99,6 +101,9 @@ export default function StripeSettingsPage() {
     <main className="min-h-screen bg-slate-950 px-4 py-6 text-white md:px-6">
       <div className="mx-auto max-w-2xl">
         <div className="mb-6">
+          <BackButton href="/dashboard/settings">
+            Retour au paramètres
+          </BackButton>
           <h1 className="text-3xl font-bold tracking-tight">
             Paiements
           </h1>
@@ -207,6 +212,47 @@ export default function StripeSettingsPage() {
             </button>
           </div>
         )}
+
+        <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-6">
+          <p className="font-semibold">💳 Accepter les paiements par carte</p>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Stripe gère les paiements par carte à ta place — l&apos;argent
+            est déposé directement dans ton compte bancaire, sans passer
+            par nous.
+          </p>
+
+          <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-400">
+            <li>
+              Clique sur &quot;Connecter mon compte Stripe&quot; — tu es
+              redirigé vers un formulaire Stripe sécurisé.
+            </li>
+
+            <li>
+              Remplis les informations demandées : identité de
+              l&apos;entreprise, coordonnées bancaires pour les
+              versements.
+            </li>
+
+            <li>
+              Une fois soumis, Stripe peut prendre quelques minutes à
+              quelques jours pour valider ton compte selon les
+              informations fournies.
+            </li>
+
+            <li>
+              Reviens sur cette page à tout moment — le statut
+              (Paiements / Versements / Infos) se met à jour
+              automatiquement une fois la vérification terminée.
+            </li>
+          </ol>
+
+          <p className="mt-4 text-xs text-slate-600">
+            Si Stripe demande des informations supplémentaires après la
+            configuration initiale, elles apparaîtront dans la section
+            &quot;Informations requises&quot; ci-dessus.
+          </p>
+        </div>
       </div>
     </main>
   );
