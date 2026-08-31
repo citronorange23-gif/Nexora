@@ -12,34 +12,24 @@ import ConfirmationModal from "@/components/ui/ConfirmationModal";
 
 import qz from "qz-tray";
 
-let qzConnectionPromise: Promise<void> | null = null;
-let qzUnavailable = false;
+let qzConnectionAttempted = false;
 
 function connectQZ() {
   if (qz.websocket.isActive()) {
     return Promise.resolve();
   }
 
-  if (qzUnavailable) {
+  if (qzConnectionAttempted) {
     return Promise.reject(new Error("QZ_UNAVAILABLE"));
   }
 
-  if (!qzConnectionPromise) {
-    qzConnectionPromise = qz.websocket
-      .connect()
-      .catch((err: unknown) => {
-        console.error("QZ Tray non connecté (aucune nouvelle tentative ne sera faite) :", err);
-        qzUnavailable = true;
-        qzConnectionPromise = null;
-        throw err;
-      });
-  }
+  qzConnectionAttempted = true;
 
-  return qzConnectionPromise;
+  return qz.websocket.connect().catch((err: unknown) => {
+    console.error("QZ Tray non connecté :", err);
+    throw new Error("QZ_UNAVAILABLE");
+  });
 }
-
-// Nom exact de l'imprimante tel qu'il apparaît dans les paramètres de l'OS
-const RECEIPT_PRINTER_NAME = "EPSON TM-T20III";
 
 type Product = {
   id: string;
@@ -139,6 +129,8 @@ export default function POSPage() {
   const [receiptEmail, setReceiptEmail] = useState("");
   const [sendingReceiptEmail, setSendingReceiptEmail] = useState(false);
 
+  const [showQZModal, setShowQZModal] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const readerRef =
@@ -192,7 +184,7 @@ export default function POSPage() {
   }, []);
 
   useEffect(() => {
-    connectQZ();
+    connectQZ().catch(() => setShowQZModal(true));
   }, []);
 
   /*
@@ -1348,6 +1340,27 @@ async function createSale(payment: Record<string, unknown>) {
             </div>
           </div>
         </ConfirmationModal>
+      )}
+      {/* MODALE QZ TRAY */}
+
+      {showQZModal && (
+        <ConfirmationModal
+          title="Activez votre imprimante"
+          text="QZ Tray n'est pas connecté. Lancez l'application puis réessayez."
+          onCancel={() => setShowQZModal(false)}
+          cancelText="Fermer"
+          actions={[
+            {
+              label: "🔄 Réessayer",
+              onClick: () => {
+                qzConnectionAttempted = false; // autorise une nouvelle tentative
+                connectQZ()
+                  .then(() => setShowQZModal(false))
+                  .catch(() => setShowQZModal(true));
+              },
+            },
+          ]}
+        />
       )}
     </main>
   );

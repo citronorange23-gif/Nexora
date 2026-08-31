@@ -358,7 +358,7 @@ export async function generateInvoicePdf(
   doc
     .fontSize(9)
     .fillColor("#999")
-    .text("Merci de votre confiance.", 50, doc.y, {
+    .text("Merci de votre soutien.", 50, doc.y, {
       align: "center",
       width: 495,
     });

@@ -22,6 +22,7 @@ interface ConfirmationModalProps {
   loading?: boolean;
   actions?: ModalAction[];
   children?: ReactNode;
+  singleAction?: boolean;
 }
 
 const VARIANT_CLASSES: Record<ModalActionVariant, string> = {
@@ -41,6 +42,7 @@ export default function ConfirmationModal({
   loading = false,
   actions,
   children,
+  singleAction = false,
 }: ConfirmationModalProps) {
   return (
     <div
@@ -49,11 +51,19 @@ export default function ConfirmationModal({
       aria-modal="true"
     >
       <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
-        <h2 className="text-lg font-semibold text-white">{title}</h2>
+        <h2 className="text-lg font-semibold text-white">
+          {title}
+        </h2>
 
-        <p className="mt-3 text-sm leading-6 text-slate-400">{text}</p>
+        <p className="mt-3 text-sm leading-6 text-slate-400">
+          {text}
+        </p>
 
-        {children && <div className="mt-4">{children}</div>}
+        {children && (
+          <div className="mt-4">
+            {children}
+          </div>
+        )}
 
         {actions && actions.length > 0 ? (
           <div className="mt-6 space-y-2">
@@ -67,29 +77,41 @@ export default function ConfirmationModal({
                   VARIANT_CLASSES[action.variant ?? "primary"]
                 }`}
               >
-                {action.loading ? "Chargement..." : action.label}
+                {action.loading
+                  ? "Chargement..."
+                  : action.label}
               </button>
             ))}
 
-            <button
-              type="button"
-              onClick={onCancel}
-              disabled={loading}
-              className="w-full rounded-xl border border-slate-700 px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {cancelText}
-            </button>
+            {!singleAction && (
+              <button
+                type="button"
+                onClick={onCancel}
+                disabled={loading}
+                className="w-full rounded-xl border border-slate-700 px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {cancelText}
+              </button>
+            )}
           </div>
         ) : (
-          <div className="mt-6 flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={onCancel}
-              disabled={loading}
-              className="rounded-xl border border-slate-700 px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {cancelText}
-            </button>
+          <div
+            className={`mt-6 ${
+              singleAction
+                ? "flex justify-end"
+                : "flex justify-end gap-3"
+            }`}
+          >
+            {!singleAction && (
+              <button
+                type="button"
+                onClick={onCancel}
+                disabled={loading}
+                className="rounded-xl border border-slate-700 px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {cancelText}
+              </button>
+            )}
 
             {onConfirm && (
               <button
