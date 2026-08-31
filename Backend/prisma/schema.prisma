@@ -76,6 +76,15 @@ enum PermissionAction {
   DELETE
 }
 
+enum DocumentType {
+  CONTRACT
+  QUOTE
+  INVOICE
+  RECEIPT
+  CREDIT_NOTE
+  OTHER
+}
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
@@ -86,6 +95,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   memberships OrganizationMember[]
+  documents   Document[]
 
   @@map("users")
 }
@@ -107,6 +117,7 @@ model Organization {
   sales              Sale[]
   roles              Role[]
   stripeAccount      StripeAccount?
+  documents          Document[]
 
   @@map("organizations")
 }
@@ -266,7 +277,8 @@ model Customer {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  sales Sale[]
+  sales     Sale[]
+  documents Document[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -372,4 +384,34 @@ model RolePermission {
   @@unique([roleId, module, action])
   @@index([roleId])
   @@map("role_permissions")
+}
+
+model Document {
+  id          String       @id @default(uuid())
+  name        String
+  type        DocumentType @default(OTHER)
+  description String?
+  folder      String?
+
+  originalName String
+  storagePath  String       @unique
+  mimeType     String
+  size         Int
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  uploadedById String
+  uploadedBy   User @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, type])
+  @@index([organizationId, customerId])
+  @@map("documents")
 }
