@@ -8,11 +8,7 @@ import { getNextDocumentNumber } from "./document.service.js";
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import type { CreateQuoteInput, ListQuotesQuery } from "./quote.schema.js";
 
-type TransactionClient = Parameters
-  PrismaClient["$transaction"]
->[0] extends (tx: infer T) => unknown
-  ? T
-  : never;
+type TransactionClient = Parameters<PrismaClient["$transaction"]>[0] extends (tx: infer T) => unknown ? T : never;
 
 const quoteInclude = {
   customer: true,
